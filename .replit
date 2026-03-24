@@ -3,9 +3,6 @@ modules = ["nodejs-24"]
   [[artifacts]]
   id = "artifacts/freyja-crm"
 
-  [[artifacts]]
-  id = "artifacts/mockup-sandbox"
-
   [deployment]
   router = "application"
   deploymentTarget = "autoscale"
