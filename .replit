@@ -5,8 +5,21 @@ modules = ["nodejs-24"]
   build = ["pnpm", "--filter", "rest-express", "run", "build"]
   run = ["node", "artifacts/freyja-crm/dist/index.cjs"]
 
+  [[ports]]
+  localPort = 8080
+  externalPort = 80
+
   [workflows]
   runButton = "Project"
+
+  [[workflows.workflow]]
+  name = "artifacts/freyja-crm: web"
+  mode = "sequential"
+  author = "agent"
+
+  [[workflows.workflow.tasks]]
+  task = "shell.exec"
+  args = "bash -c 'cd /home/runner/workspace/artifacts/freyja-crm && NODE_ENV=production node dist/index.cjs'"
 
   [agent]
   stack = "PNPM_WORKSPACE"
