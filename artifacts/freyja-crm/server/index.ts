@@ -32,6 +32,7 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+app.use(express.text({ type: "text/csv", limit: "50mb" }));
 
 registerAuthRoutes(app);
 

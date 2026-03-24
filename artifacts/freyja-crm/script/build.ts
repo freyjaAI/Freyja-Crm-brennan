@@ -23,6 +23,7 @@ const allowlist = [
   "passport",
   "passport-local",
   "pg",
+  "pg-copy-streams",
   "stripe",
   "uuid",
   "ws",

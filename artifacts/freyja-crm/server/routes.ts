@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage, db } from "./storage";
+import { storage, db, pool } from "./storage";
 import { updateBrokerSchema, brokers } from "@shared/schema";
 import type { Broker } from "@shared/schema";
 import { requireAuth } from "./auth";
@@ -172,6 +172,41 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  app.post("/api/admin/bulk-csv", async (req, res) => {
+    const secret = req.headers["x-migrate-secret"];
+    if (secret !== (process.env.MIGRATE_SECRET || "freyja-migrate-2026")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    try {
+      const csvData = req.body as string;
+      if (!csvData || csvData.length === 0) {
+        return res.status(400).json({ error: "No CSV data" });
+      }
+
+      const client = await pool.connect();
+      try {
+        const copyStream = await import("pg-copy-streams");
+        const cols = "full_name,first_name,last_name,email,email_secondary,phone,mobile,fax,office_name,job_title,address,city,state,zip_code,license_number,website,profile_url,photo_url,experience_years,description,languages,specialties,for_sale_count,recently_sold_count,average_price,social_media,source_file,source_type,outreach_status,assigned_to,notes,last_contacted_at,created_at,linkedin_url,linkedin_headline,linkedin_location,linkedin_connections,linkedin_email_found,linkedin_enriched_at,outreach_email_subject,outreach_email_body,outreach_linkedin_message,outreach_generated_at";
+        const stream = client.query(copyStream.from(`COPY brokers(${cols}) FROM STDIN WITH CSV`));
+        
+        await new Promise<void>((resolve, reject) => {
+          stream.on("finish", resolve);
+          stream.on("error", reject);
+          stream.write(csvData);
+          stream.end();
+        });
+
+        const countResult = await client.query("SELECT COUNT(*) FROM brokers");
+        res.json({ success: true, total: parseInt(countResult.rows[0].count) });
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Protect all /api routes — login/logout/me are registered before this in index.ts
   app.use("/api", requireAuth);
 
