@@ -70,6 +70,14 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - `POST /api/outreach/batch` — SSE endpoint, processes up to 100 brokers (3 concurrent), streams progress events
 - **Schema additions** (columns added to `data.db` and `shared/schema.ts`): `linkedin_url`, `linkedin_headline`, `linkedin_location`, `linkedin_connections`, `linkedin_email_found`, `linkedin_enriched_at`, `outreach_email_subject`, `outreach_email_body`, `outreach_linkedin_message`, `outreach_generated_at`
 - **UI additions**: BrokerDetail panel has LinkedIn section (Find/Re-search button, profile link, headline) and AI Outreach section (Email + LinkedIn tabs with copy buttons); Brokers list has "Batch AI Enrich" button with a progress dialog and SSE streaming
+- **Prospecting filters** (Brokers page):
+  - Expandable advanced filter panel with: Deals Closed (min/max), Avg Deal Price (min/max), Experience Years (min/max), Brokerage (text), City (text), Source Type (select), Property Types (multi-select: House, Condo, Townhouse, Commercial, Lot/Land, Manufactured, Other), Has Email/Phone/LinkedIn (checkboxes)
+  - Active filter chips with click-to-remove
+  - Column sorting on Name, Office, State, Sold, Avg $, Exp (numeric text fields parsed via SQL CASE/REPLACE/REGEXP)
+  - Debounced text/numeric inputs (400ms) to prevent excessive API calls
+  - Export CSV respects all advanced filters
+  - Backend: `buildProspectingConditions()` in storage.ts handles safe SQL parsing of text-formatted numeric fields (commas, $ signs, K/M suffixes, "X years" format)
+  - API: `GET /api/filter-options` returns available states, specialties, source types
 
 ### `artifacts/api-server` (`@workspace/api-server`)
 

@@ -210,27 +210,46 @@ export async function registerRoutes(
   // Protect all /api routes — login/logout/me are registered before this in index.ts
   app.use("/api", requireAuth);
 
-  // GET /api/brokers — paginated list with search/filter/sort
+  app.get("/api/filter-options", async (_req, res) => {
+    try {
+      const options = await storage.getFilterOptions();
+      res.json(options);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/brokers", async (req, res) => {
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
       const search = (req.query.search as string) || undefined;
       const state = (req.query.state as string) || undefined;
+      const states = req.query.states ? (req.query.states as string).split(",").filter(Boolean) : undefined;
       const status = (req.query.status as string) || undefined;
       const assigned_to = (req.query.assigned_to as string) || undefined;
       const sort_by = (req.query.sort_by as string) || undefined;
       const sort_order = (req.query.sort_order as string) || undefined;
 
+      const dealsClosedMin = req.query.dealsClosedMin ? parseInt(req.query.dealsClosedMin as string) : undefined;
+      const dealsClosedMax = req.query.dealsClosedMax ? parseInt(req.query.dealsClosedMax as string) : undefined;
+      const avgPriceMin = req.query.avgPriceMin ? parseFloat(req.query.avgPriceMin as string) : undefined;
+      const avgPriceMax = req.query.avgPriceMax ? parseFloat(req.query.avgPriceMax as string) : undefined;
+      const experienceMin = req.query.experienceMin ? parseInt(req.query.experienceMin as string) : undefined;
+      const experienceMax = req.query.experienceMax ? parseInt(req.query.experienceMax as string) : undefined;
+      const specialties = req.query.specialties ? (req.query.specialties as string).split(",").filter(Boolean) : undefined;
+      const brokerage = (req.query.brokerage as string) || undefined;
+      const city = (req.query.city as string) || undefined;
+      const sourceType = (req.query.sourceType as string) || undefined;
+      const hasEmail = req.query.hasEmail === "true" ? true : undefined;
+      const hasPhone = req.query.hasPhone === "true" ? true : undefined;
+      const hasLinkedin = req.query.hasLinkedin === "true" ? true : undefined;
+
       const result = await storage.getBrokers({
-        page,
-        limit,
-        search,
-        state,
-        status,
-        assigned_to,
-        sort_by,
-        sort_order,
+        page, limit, search, state, states, status, assigned_to, sort_by, sort_order,
+        dealsClosedMin, dealsClosedMax, avgPriceMin, avgPriceMax,
+        experienceMin, experienceMax, specialties, brokerage, city,
+        sourceType, hasEmail, hasPhone, hasLinkedin,
       });
 
       res.json(result);
@@ -239,22 +258,35 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/brokers/export — export filtered brokers as CSV
   app.get("/api/brokers/export", async (req, res) => {
     try {
       const search = (req.query.search as string) || undefined;
       const state = (req.query.state as string) || undefined;
       const status = (req.query.status as string) || undefined;
       const assigned_to = (req.query.assigned_to as string) || undefined;
+      const dealsClosedMin = req.query.dealsClosedMin ? parseInt(req.query.dealsClosedMin as string) : undefined;
+      const dealsClosedMax = req.query.dealsClosedMax ? parseInt(req.query.dealsClosedMax as string) : undefined;
+      const avgPriceMin = req.query.avgPriceMin ? parseFloat(req.query.avgPriceMin as string) : undefined;
+      const avgPriceMax = req.query.avgPriceMax ? parseFloat(req.query.avgPriceMax as string) : undefined;
+      const experienceMin = req.query.experienceMin ? parseInt(req.query.experienceMin as string) : undefined;
+      const experienceMax = req.query.experienceMax ? parseInt(req.query.experienceMax as string) : undefined;
+      const specialties = req.query.specialties ? (req.query.specialties as string).split(",").filter(Boolean) : undefined;
+      const brokerage = (req.query.brokerage as string) || undefined;
+      const city = (req.query.city as string) || undefined;
+      const sourceType = (req.query.sourceType as string) || undefined;
+      const hasEmail = req.query.hasEmail === "true" ? true : undefined;
+      const hasPhone = req.query.hasPhone === "true" ? true : undefined;
+      const hasLinkedin = req.query.hasLinkedin === "true" ? true : undefined;
 
-      const brokersList = await storage.getFilteredBrokersForExport({
-        search,
-        state,
-        status,
-        assigned_to,
+      const result = await storage.getBrokers({
+        page: 1, limit: 100000,
+        search, state, status, assigned_to,
+        dealsClosedMin, dealsClosedMax, avgPriceMin, avgPriceMax,
+        experienceMin, experienceMax, specialties, brokerage, city,
+        sourceType, hasEmail, hasPhone, hasLinkedin,
       });
 
-      const csv = Papa.unparse(brokersList);
+      const csv = Papa.unparse(result.brokers);
       res.setHeader("Content-Type", "text/csv");
       res.setHeader("Content-Disposition", "attachment; filename=brokers_export.csv");
       res.send(csv);

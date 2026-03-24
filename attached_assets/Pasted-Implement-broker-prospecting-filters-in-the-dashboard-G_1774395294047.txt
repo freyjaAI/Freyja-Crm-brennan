@@ -1,0 +1,35 @@
+Implement broker prospecting filters in the dashboard.
+
+Goal: Add real backend-powered dashboard filters for broker prospecting.
+
+Core filters to add:
+1. dealsClosedMin / dealsClosedMax (numeric range)
+2. closedVolumeMin / closedVolumeMax (numeric range)
+3. avgDealSizeMin / avgDealSizeMax (numeric range)
+4. lastClosingAfter / lastClosingBefore (date range)
+5. assetTypes (multi-select: multifamily, office, industrial, retail, land, mixed-use)
+6. markets or submarkets (multi-select)
+7. brokerage (text search or multi-select)
+8. estimatedGciMin / estimatedGciMax if derivable from closed volume
+
+Requirements:
+- First inspect the existing schema and determine which broker/deal fields already exist.
+- Reuse existing API patterns and dashboard table patterns.
+- Add backend query support first with proper indexes.
+- Return filtered counts and paginated broker rows from the API.
+- Update the dashboard filter panel with compact chips/inputs matching existing UI style.
+- Show active filters above the table with clear/reset all button.
+- Make sure production build works.
+
+Implementation steps:
+1. Find the current dashboard page, broker listing component, and API route.
+2. Inspect database schema for fields related to transaction count, sale volume, average transaction size, last sale date, asset type, geography/submarket, brokerage name.
+3. If aggregate fields do not exist, create a broker_stats table or cached aggregation query.
+4. Add or extend the backend endpoint to support query params: dealsClosedMin, dealsClosedMax, closedVolumeMin, closedVolumeMax, avgDealSizeMin, avgDealSizeMax, lastClosingAfter, lastClosingBefore, assetTypes, markets, brokerage, estimatedGciMin, estimatedGciMax, page, limit, sortBy, sortDir.
+5. Add server-side sorting: deals_closed desc, closed_volume desc, avg_deal_size desc, last_closing desc.
+6. Build the frontend filter UI: numeric range inputs, date range, multiselects for asset type and market, brokerage search, active filter chips, clear all button.
+7. Keep styling consistent with existing dashboard.
+8. Test locally and fix build/type errors.
+9. Do NOT touch unrelated production data flows. Isolate changes to filter route, query builder, filter state, and dashboard table component.
+
+Important: Do not invent fields. First inspect the schema and map filters to real fields. If raw transactions exist but no broker aggregates, create a reusable aggregate layer. Prefer performant SQL with indexes over filtering in memory.
