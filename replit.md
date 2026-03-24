@@ -61,6 +61,15 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
 - **Native module**: `better-sqlite3` — compiled with `make` inside `node_modules/better-sqlite3/build/`
 - Source files live under `server/`, `client/`, `shared/`; production dist is pre-built in `dist/`
 - Do NOT run pnpm commands for this artifact — it uses plain `npm` and its own `node_modules`
+- **After any source change**: run `cd artifacts/freyja-crm && npm run build`, then restart the `artifacts/freyja-crm: web` workflow
+- **AI integrations**: `@google/genai` installed; uses `AI_INTEGRATIONS_GEMINI_API_KEY` + `AI_INTEGRATIONS_GEMINI_BASE_URL` env vars
+- **Apify**: `APIFY_TOKEN` secret set; used for Google Search scraper → LinkedIn profile lookup
+- **New API endpoints**:
+  - `POST /api/brokers/:id/enrich-linkedin` — Apify Google search → LinkedIn URL + headline
+  - `POST /api/brokers/:id/generate-outreach` — Gemini `gemini-2.5-flash` → email subject/body + LinkedIn message
+  - `POST /api/outreach/batch` — SSE endpoint, processes up to 100 brokers (3 concurrent), streams progress events
+- **Schema additions** (columns added to `data.db` and `shared/schema.ts`): `linkedin_url`, `linkedin_headline`, `linkedin_location`, `linkedin_connections`, `linkedin_email_found`, `linkedin_enriched_at`, `outreach_email_subject`, `outreach_email_body`, `outreach_linkedin_message`, `outreach_generated_at`
+- **UI additions**: BrokerDetail panel has LinkedIn section (Find/Re-search button, profile link, headline) and AI Outreach section (Email + LinkedIn tabs with copy buttons); Brokers list has "Batch AI Enrich" button with a progress dialog and SSE streaming
 
 ### `artifacts/api-server` (`@workspace/api-server`)
 

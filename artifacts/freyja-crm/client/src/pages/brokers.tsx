@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -27,11 +28,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import {
   Search,
   ChevronLeft,
   ChevronRight,
   Download,
   X,
+  Sparkles,
+  Loader2,
+  CheckCircle2,
+  Linkedin,
 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -64,11 +76,20 @@ interface BrokersResponse {
   totalPages: number;
 }
 
+interface BatchProgress {
+  total: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  done: boolean;
+  lastBroker?: string;
+  linkedinFound?: number;
+}
+
 export default function Brokers() {
   const [location] = useLocation();
   const { toast } = useToast();
 
-  // Parse initial params from URL
   const urlParams = new URLSearchParams(location.split("?")[1] || "");
 
   const [page, setPage] = useState(1);
@@ -80,7 +101,14 @@ export default function Brokers() {
   const [selectedBrokerId, setSelectedBrokerId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
-  // Reset page on filter change
+  // Batch enrich state
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [batchSize, setBatchSize] = useState(20);
+  const [batchMode, setBatchMode] = useState<"both" | "enrich" | "outreach">("both");
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     setPage(1);
   }, [search, stateFilter, statusFilter, assignedFilter]);
@@ -103,18 +131,9 @@ export default function Brokers() {
     },
   });
 
-  // Inline status update mutation
   const statusMutation = useMutation({
-    mutationFn: async ({
-      id,
-      status,
-    }: {
-      id: number;
-      status: OutreachStatus;
-    }) => {
-      const res = await apiRequest("PATCH", `/api/brokers/${id}`, {
-        outreach_status: status,
-      });
+    mutationFn: async ({ id, status }: { id: number; status: OutreachStatus }) => {
+      const res = await apiRequest("PATCH", `/api/brokers/${id}`, { outreach_status: status });
       return res.json();
     },
     onSuccess: () => {
@@ -123,7 +142,6 @@ export default function Brokers() {
     },
   });
 
-  // Bulk status update
   const bulkMutation = useMutation({
     mutationFn: async (status: OutreachStatus) => {
       const promises = Array.from(selectedIds).map((id) =>
@@ -170,6 +188,91 @@ export default function Brokers() {
     }
   };
 
+  const runBatchEnrich = async () => {
+    setBatchRunning(true);
+    setBatchProgress({ total: 0, processed: 0, succeeded: 0, failed: 0, done: false, linkedinFound: 0 });
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch("/api/outreach/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          limit: batchSize,
+          state: stateFilter || undefined,
+          status: statusFilter || undefined,
+          search: search || undefined,
+          mode: batchMode,
+          skip_enriched: true,
+        }),
+        signal: controller.signal,
+      });
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              if (event.type === "start") {
+                setBatchProgress((p) => ({ ...p!, total: event.total }));
+              } else if (event.type === "progress") {
+                setBatchProgress({
+                  total: event.total,
+                  processed: event.processed,
+                  succeeded: event.succeeded,
+                  failed: event.failed,
+                  done: false,
+                  lastBroker: event.broker_name,
+                  linkedinFound: (event.linkedin_found ? 1 : 0),
+                });
+              } else if (event.type === "done") {
+                setBatchProgress((p) => ({
+                  ...p!,
+                  processed: event.processed,
+                  succeeded: event.succeeded,
+                  failed: event.failed,
+                  done: true,
+                }));
+                queryClient.invalidateQueries({ queryKey: ["/api/brokers"] });
+                toast({
+                  title: `Batch complete — ${event.succeeded} processed`,
+                  description: event.failed > 0 ? `${event.failed} failed` : undefined,
+                });
+              }
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err.name !== "AbortError") {
+        toast({ title: "Batch failed", variant: "destructive" });
+      }
+    } finally {
+      setBatchRunning(false);
+    }
+  };
+
+  const stopBatch = () => {
+    abortRef.current?.abort();
+    setBatchRunning(false);
+  };
+
+  const openBatchDialog = () => {
+    setBatchProgress(null);
+    setBatchDialogOpen(true);
+  };
+
   return (
     <div className="flex h-full" data-testid="brokers-page">
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -179,15 +282,26 @@ export default function Brokers() {
             <h1 className="text-xl font-semibold" data-testid="brokers-title">
               Brokers
             </h1>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              data-testid="button-export"
-            >
-              <Download className="w-4 h-4 mr-1.5" />
-              Export CSV
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openBatchDialog}
+                data-testid="button-batch-enrich"
+              >
+                <Sparkles className="w-4 h-4 mr-1.5" />
+                Batch AI Enrich
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExport}
+                data-testid="button-export"
+              >
+                <Download className="w-4 h-4 mr-1.5" />
+                Export CSV
+              </Button>
+            </div>
           </div>
 
           {/* Filters row */}
@@ -223,9 +337,7 @@ export default function Brokers() {
               <SelectContent>
                 <SelectItem value="all">All States</SelectItem>
                 {US_STATES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
+                  <SelectItem key={s} value={s}>{s}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -240,9 +352,7 @@ export default function Brokers() {
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
                 {outreachStatusEnum.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {STATUS_LABELS[s]}
-                  </SelectItem>
+                  <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -270,20 +380,14 @@ export default function Brokers() {
           {/* Bulk actions */}
           {selectedIds.size > 0 && (
             <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
-              <span className="text-sm font-medium">
-                {selectedIds.size} selected
-              </span>
-              <Select
-                onValueChange={(v) => bulkMutation.mutate(v as OutreachStatus)}
-              >
+              <span className="text-sm font-medium">{selectedIds.size} selected</span>
+              <Select onValueChange={(v) => bulkMutation.mutate(v as OutreachStatus)}>
                 <SelectTrigger className="w-[160px] h-8 text-sm" data-testid="select-bulk-status">
                   <SelectValue placeholder="Set status..." />
                 </SelectTrigger>
                 <SelectContent>
                   {outreachStatusEnum.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {STATUS_LABELS[s]}
-                    </SelectItem>
+                    <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -314,10 +418,7 @@ export default function Brokers() {
                   <TableRow className="bg-muted/50">
                     <TableHead className="w-10">
                       <Checkbox
-                        checked={
-                          data && data.brokers.length > 0 &&
-                          selectedIds.size === data.brokers.length
-                        }
+                        checked={data && data.brokers.length > 0 && selectedIds.size === data.brokers.length}
                         onCheckedChange={toggleAll}
                         data-testid="checkbox-select-all"
                       />
@@ -347,8 +448,13 @@ export default function Brokers() {
                           data-testid={`checkbox-broker-${broker.id}`}
                         />
                       </TableCell>
-                      <TableCell className="text-sm font-medium max-w-[160px] truncate">
-                        {broker.full_name}
+                      <TableCell className="text-sm font-medium max-w-[160px]">
+                        <div className="flex items-center gap-1 truncate">
+                          {broker.linkedin_url && (
+                            <Linkedin className="w-3 h-3 text-[#0077b5] shrink-0" />
+                          )}
+                          <span className="truncate">{broker.full_name}</span>
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">
                         {broker.email || "—"}
@@ -369,10 +475,7 @@ export default function Brokers() {
                         <Select
                           value={broker.outreach_status || "not_contacted"}
                           onValueChange={(v) =>
-                            statusMutation.mutate({
-                              id: broker.id,
-                              status: v as OutreachStatus,
-                            })
+                            statusMutation.mutate({ id: broker.id, status: v as OutreachStatus })
                           }
                         >
                           <SelectTrigger
@@ -381,9 +484,7 @@ export default function Brokers() {
                           >
                             <Badge
                               className={`text-[10px] px-1.5 py-0 pointer-events-none border-0 ${
-                                STATUS_BADGE_VARIANT[
-                                  broker.outreach_status || "not_contacted"
-                                ]
+                                STATUS_BADGE_VARIANT[broker.outreach_status || "not_contacted"]
                               }`}
                             >
                               {STATUS_LABELS[broker.outreach_status || "not_contacted"]}
@@ -391,9 +492,7 @@ export default function Brokers() {
                           </SelectTrigger>
                           <SelectContent>
                             {outreachStatusEnum.map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {STATUS_LABELS[s]}
-                              </SelectItem>
+                              <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -405,10 +504,7 @@ export default function Brokers() {
                   ))}
                   {data?.brokers.length === 0 && (
                     <TableRow>
-                      <TableCell
-                        colSpan={9}
-                        className="h-32 text-center text-muted-foreground"
-                      >
+                      <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
                         No brokers found. Try adjusting your filters or import data.
                       </TableCell>
                     </TableRow>
@@ -423,8 +519,7 @@ export default function Brokers() {
         {data && data.totalPages > 1 && (
           <div className="px-4 py-3 border-t flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              Showing {(data.page - 1) * 50 + 1}–
-              {Math.min(data.page * 50, data.total)} of{" "}
+              Showing {(data.page - 1) * 50 + 1}–{Math.min(data.page * 50, data.total)} of{" "}
               {data.total.toLocaleString()}
             </span>
             <div className="flex items-center gap-1">
@@ -454,13 +549,145 @@ export default function Brokers() {
         )}
       </div>
 
-      {/* Slide-over detail panel */}
+      {/* Detail panel */}
       {selectedBrokerId && (
         <BrokerDetail
           brokerId={selectedBrokerId}
           onClose={() => setSelectedBrokerId(null)}
         />
       )}
+
+      {/* Batch Enrich Dialog */}
+      <Dialog open={batchDialogOpen} onOpenChange={(open) => {
+        if (!batchRunning) setBatchDialogOpen(open);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4" />
+              Batch AI Enrich
+            </DialogTitle>
+            <DialogDescription>
+              Find LinkedIn profiles via Apify and generate personalized AI outreach drafts for brokers that haven't been enriched yet.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!batchProgress ? (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Batch size (max 100)</label>
+                <div className="flex items-center gap-3">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={batchSize}
+                    onChange={(e) => setBatchSize(Math.min(100, Math.max(1, parseInt(e.target.value) || 20)))}
+                    className="w-24 h-9"
+                  />
+                  <span className="text-sm text-muted-foreground">leads at a time</span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Mode</label>
+                <Select value={batchMode} onValueChange={(v) => setBatchMode(v as any)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="both">LinkedIn + AI Outreach</SelectItem>
+                    <SelectItem value="enrich">LinkedIn Enrichment only</SelectItem>
+                    <SelectItem value="outreach">AI Outreach only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
+                <p>
+                  <strong>Filters applied:</strong>{" "}
+                  {[
+                    stateFilter && `State: ${stateFilter}`,
+                    statusFilter && `Status: ${STATUS_LABELS[statusFilter]}`,
+                    search && `Search: "${search}"`,
+                  ]
+                    .filter(Boolean)
+                    .join(", ") || "None (all brokers)"}
+                </p>
+                <p>Only processes brokers not yet enriched. Takes ~30s per batch of 3.</p>
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setBatchDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={runBatchEnrich}>
+                  <Sparkles className="w-4 h-4 mr-1.5" />
+                  Start Batch
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              {batchProgress.done ? (
+                <div className="flex flex-col items-center py-4 gap-3">
+                  <CheckCircle2 className="w-10 h-10 text-green-500" />
+                  <p className="text-base font-semibold">Batch Complete</p>
+                  <p className="text-sm text-muted-foreground text-center">
+                    {batchProgress.succeeded} leads enriched
+                    {batchProgress.failed > 0 && `, ${batchProgress.failed} failed`}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Processing...</span>
+                      </div>
+                      <span className="text-muted-foreground tabular-nums">
+                        {batchProgress.processed} / {batchProgress.total}
+                      </span>
+                    </div>
+                    <Progress
+                      value={
+                        batchProgress.total > 0
+                          ? (batchProgress.processed / batchProgress.total) * 100
+                          : 0
+                      }
+                      className="h-2"
+                    />
+                  </div>
+
+                  {batchProgress.lastBroker && (
+                    <p className="text-xs text-muted-foreground truncate">
+                      Last: {batchProgress.lastBroker}
+                    </p>
+                  )}
+
+                  <div className="flex gap-2 text-xs text-muted-foreground">
+                    <span className="text-green-600 font-medium">✓ {batchProgress.succeeded}</span>
+                    {batchProgress.failed > 0 && (
+                      <span className="text-red-500">✗ {batchProgress.failed}</span>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-end gap-2">
+                {batchProgress.done ? (
+                  <Button onClick={() => setBatchDialogOpen(false)}>Done</Button>
+                ) : (
+                  <Button variant="outline" onClick={stopBatch}>
+                    Stop
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

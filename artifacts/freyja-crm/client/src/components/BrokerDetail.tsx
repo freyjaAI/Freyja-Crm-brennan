@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -29,6 +30,12 @@ import {
   Calendar,
   ExternalLink,
   User,
+  Linkedin,
+  Loader2,
+  Sparkles,
+  Search,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -47,7 +54,7 @@ interface BrokerDetailProps {
 export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
   const { toast } = useToast();
 
-  const { data: broker, isLoading } = useQuery<Broker>({
+  const { data: broker, isLoading, refetch } = useQuery<Broker>({
     queryKey: ["/api/brokers", brokerId],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/brokers/${brokerId}`);
@@ -81,6 +88,41 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
     },
   });
 
+  const enrichLinkedInMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/brokers/${brokerId}/enrich-linkedin`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      refetch();
+      if (data.found) {
+        toast({ title: "LinkedIn profile found!" });
+      } else {
+        toast({
+          title: "No LinkedIn profile found",
+          description: "A manual search link is shown below.",
+        });
+      }
+    },
+    onError: () => {
+      toast({ title: "LinkedIn search failed", variant: "destructive" });
+    },
+  });
+
+  const generateOutreachMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/brokers/${brokerId}/generate-outreach`);
+      return res.json();
+    },
+    onSuccess: () => {
+      refetch();
+      toast({ title: "Outreach drafts generated!" });
+    },
+    onError: () => {
+      toast({ title: "Failed to generate outreach", variant: "destructive" });
+    },
+  });
+
   const handleSave = () => {
     updateMutation.mutate({
       outreach_status: status,
@@ -94,6 +136,18 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
     navigator.clipboard.writeText(text);
     toast({ title: `${label} copied` });
   };
+
+  const linkedInManualSearchUrl = broker
+    ? `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(
+        broker.full_name + (broker.office_name ? " " + broker.office_name : "")
+      )}`
+    : "";
+
+  const mailtoUrl = broker?.outreach_email_subject && broker?.email
+    ? `mailto:${broker.email}?subject=${encodeURIComponent(broker.outreach_email_subject)}&body=${encodeURIComponent(broker.outreach_email_body || "")}`
+    : broker?.outreach_email_subject
+    ? `mailto:?subject=${encodeURIComponent(broker.outreach_email_subject)}&body=${encodeURIComponent(broker.outreach_email_body || "")}`
+    : "";
 
   if (isLoading) {
     return (
@@ -121,9 +175,7 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
             {broker.full_name}
           </h2>
           {broker.job_title && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {broker.job_title}
-            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">{broker.job_title}</p>
           )}
           {broker.office_name && (
             <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -161,7 +213,6 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
                 size="sm"
                 onClick={() => copyToClipboard(broker.email!, "Email")}
                 className="shrink-0 h-7 w-7 p-0"
-                data-testid="button-copy-email"
               >
                 <Copy className="w-3 h-3" />
               </Button>
@@ -184,7 +235,6 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
                 size="sm"
                 onClick={() => copyToClipboard(broker.phone!, "Phone")}
                 className="shrink-0 h-7 w-7 p-0"
-                data-testid="button-copy-phone"
               >
                 <Copy className="w-3 h-3" />
               </Button>
@@ -208,13 +258,11 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
           <div className="flex items-center gap-2 text-sm">
             <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <span>
-              {[broker.city, broker.state, broker.zip_code]
-                .filter(Boolean)
-                .join(", ") || "—"}
+              {[broker.city, broker.state, broker.zip_code].filter(Boolean).join(", ") || "—"}
             </span>
           </div>
           {broker.address && (
-            <p className="text-sm text-muted-foreground pl-5.5">{broker.address}</p>
+            <p className="text-sm text-muted-foreground pl-5">{broker.address}</p>
           )}
         </div>
 
@@ -352,18 +400,257 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
 
         <Separator />
 
-        {/* Editable CRM fields */}
+        {/* LinkedIn Enrichment */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              LinkedIn
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs gap-1.5 px-2"
+              onClick={() => enrichLinkedInMutation.mutate()}
+              disabled={enrichLinkedInMutation.isPending}
+              data-testid="button-enrich-linkedin"
+            >
+              {enrichLinkedInMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Search className="w-3 h-3" />
+              )}
+              {broker.linkedin_enriched_at ? "Re-search" : "Find Profile"}
+            </Button>
+          </div>
+
+          {broker.linkedin_url ? (
+            <div className="space-y-1.5">
+              <a
+                href={broker.linkedin_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 text-sm text-[#0077b5] hover:underline font-medium"
+                data-testid="link-linkedin-profile"
+              >
+                <Linkedin className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">
+                  {broker.linkedin_headline || "View LinkedIn Profile"}
+                </span>
+                <ExternalLink className="w-3 h-3 shrink-0" />
+              </a>
+              {broker.linkedin_location && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1 pl-0.5">
+                  <MapPin className="w-3 h-3" />
+                  {broker.linkedin_location}
+                </p>
+              )}
+              {broker.linkedin_email_found && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1 pl-0.5">
+                  <Mail className="w-3 h-3" />
+                  {broker.linkedin_email_found}
+                </p>
+              )}
+              <p className="text-[10px] text-muted-foreground pl-0.5">
+                Enriched {new Date(broker.linkedin_enriched_at!).toLocaleDateString()}
+              </p>
+            </div>
+          ) : broker.linkedin_enriched_at ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <AlertCircle className="w-3.5 h-3.5" />
+                No LinkedIn profile found automatically
+              </div>
+              <a
+                href={linkedInManualSearchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+              >
+                <Search className="w-3 h-3" />
+                Search manually on LinkedIn
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Click "Find Profile" to search LinkedIn automatically.
+            </p>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* AI Outreach */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+              AI Outreach
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs gap-1.5 px-2"
+              onClick={() => generateOutreachMutation.mutate()}
+              disabled={generateOutreachMutation.isPending}
+              data-testid="button-generate-outreach"
+            >
+              {generateOutreachMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
+              {broker.outreach_generated_at ? "Regenerate" : "Generate"}
+            </Button>
+          </div>
+
+          {generateOutreachMutation.isPending && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Generating personalized outreach with AI...
+            </div>
+          )}
+
+          {broker.outreach_email_subject ? (
+            <Tabs defaultValue="email" className="w-full">
+              <TabsList className="w-full h-8 text-xs">
+                <TabsTrigger value="email" className="flex-1 text-xs">
+                  <Mail className="w-3 h-3 mr-1" />
+                  Email
+                </TabsTrigger>
+                <TabsTrigger value="linkedin" className="flex-1 text-xs">
+                  <Linkedin className="w-3 h-3 mr-1" />
+                  LinkedIn
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="email" className="space-y-2 mt-2">
+                {/* Subject */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                      Subject
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => copyToClipboard(broker.outreach_email_subject!, "Subject")}
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  <p className="text-xs font-medium bg-muted/50 rounded p-2">
+                    {broker.outreach_email_subject}
+                  </p>
+                </div>
+
+                {/* Body */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                      Body
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() => copyToClipboard(broker.outreach_email_body!, "Email body")}
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground bg-muted/50 rounded p-2 leading-relaxed whitespace-pre-wrap max-h-48 overflow-auto">
+                    {broker.outreach_email_body}
+                  </p>
+                </div>
+
+                {/* Open in email client */}
+                {mailtoUrl && (
+                  <a
+                    href={mailtoUrl}
+                    className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                  >
+                    <Mail className="w-3 h-3" />
+                    Open in email client
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+
+                {broker.outreach_generated_at && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Generated {new Date(broker.outreach_generated_at).toLocaleDateString()}
+                  </p>
+                )}
+              </TabsContent>
+
+              <TabsContent value="linkedin" className="space-y-2 mt-2">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+                      Connection Message
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0"
+                      onClick={() =>
+                        copyToClipboard(broker.outreach_linkedin_message!, "LinkedIn message")
+                      }
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground bg-muted/50 rounded p-2 leading-relaxed whitespace-pre-wrap">
+                    {broker.outreach_linkedin_message}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground text-right">
+                    {(broker.outreach_linkedin_message || "").length}/300 chars
+                  </p>
+                </div>
+
+                {broker.linkedin_url ? (
+                  <a
+                    href={broker.linkedin_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-[#0077b5] hover:underline"
+                  >
+                    <Linkedin className="w-3 h-3" />
+                    Open LinkedIn Profile
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                ) : (
+                  <a
+                    href={linkedInManualSearchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                  >
+                    <Search className="w-3 h-3" />
+                    Find on LinkedIn
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </TabsContent>
+            </Tabs>
+          ) : !generateOutreachMutation.isPending ? (
+            <p className="text-xs text-muted-foreground">
+              Click "Generate" to create a personalized email and LinkedIn message for this lead.
+            </p>
+          ) : null}
+        </div>
+
+        <Separator />
+
+        {/* CRM fields */}
         <div className="space-y-3">
           <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            Outreach
+            CRM
           </h3>
 
           <div className="space-y-1.5">
             <label className="text-xs text-muted-foreground">Status</label>
-            <Select
-              value={status}
-              onValueChange={(v) => setStatus(v as OutreachStatus)}
-            >
+            <Select value={status} onValueChange={(v) => setStatus(v as OutreachStatus)}>
               <SelectTrigger className="h-8 text-sm" data-testid="select-detail-status">
                 <SelectValue />
               </SelectTrigger>
@@ -405,7 +692,7 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Add notes about this broker..."
-              rows={4}
+              rows={3}
               className="text-sm resize-none"
               data-testid="textarea-notes"
             />

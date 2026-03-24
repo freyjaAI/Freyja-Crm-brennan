@@ -1,9 +1,125 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { storage } from "./storage";
-import { updateBrokerSchema } from "@shared/schema";
+import { storage, db } from "./storage";
+import { updateBrokerSchema, brokers } from "@shared/schema";
+import type { Broker } from "@shared/schema";
 import fs from "fs";
 import Papa from "papaparse";
+import { eq, isNull, or, and, like, sql } from "drizzle-orm";
+import { GoogleGenAI } from "@google/genai";
+
+const genai = new GoogleGenAI({
+  apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY || "dummy",
+  httpOptions: { baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL },
+});
+
+async function searchLinkedInProfile(broker: Broker): Promise<{
+  linkedin_url: string | null;
+  linkedin_headline: string | null;
+  linkedin_location: string | null;
+} | null> {
+  const token = process.env.APIFY_TOKEN;
+  if (!token) return null;
+
+  const namePart = `"${broker.full_name}"`;
+  const contextPart = broker.office_name
+    ? `"${broker.office_name}"`
+    : broker.state
+    ? broker.state
+    : "real estate";
+  const query = `site:linkedin.com/in/ ${namePart} ${contextPart}`;
+
+  try {
+    const res = await fetch(
+      `https://api.apify.com/v2/acts/apify~google-search-scraper/run-sync-get-dataset-items?token=${token}&timeout=60&memory=256`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          queries: query,
+          maxPagesPerQuery: 1,
+          resultsPerPage: 5,
+        }),
+      }
+    );
+
+    if (!res.ok) return null;
+    const items: any[] = await res.json();
+
+    for (const item of items) {
+      const organicResults: any[] = item.organicResults || [];
+      for (const result of organicResults) {
+        const url: string = result.url || "";
+        if (url.includes("linkedin.com/in/")) {
+          const title: string = result.title || "";
+          const headline = title
+            .replace(/ - LinkedIn$/, "")
+            .replace(/ \| LinkedIn$/, "")
+            .trim();
+          return {
+            linkedin_url: url.split("?")[0],
+            linkedin_headline: headline || null,
+            linkedin_location: null,
+          };
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function generateOutreachMessages(broker: Broker): Promise<{
+  email_subject: string;
+  email_body: string;
+  linkedin_message: string;
+}> {
+  const location = [broker.city, broker.state].filter(Boolean).join(", ");
+  const activity = [
+    broker.for_sale_count ? `${broker.for_sale_count} active listings` : null,
+    broker.recently_sold_count ? `${broker.recently_sold_count} recent sales` : null,
+    broker.average_price ? `avg price ${broker.average_price}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const prompt = `You are an expert sales rep for a business financing company that helps real estate professionals grow their business.
+
+Generate personalized outreach for this real estate broker:
+- Name: ${broker.full_name}
+- Company: ${broker.office_name || "their brokerage"}
+- Title: ${broker.job_title || "Real Estate Broker"}
+- Location: ${location || "Unknown"}
+- Specialties: ${broker.specialties || "real estate"}
+- Experience: ${broker.experience_years ? broker.experience_years + " years" : "unknown"}
+- Activity: ${activity || "active in the market"}
+${broker.linkedin_headline ? `- LinkedIn: ${broker.linkedin_headline}` : ""}
+
+Write:
+1. A personalized cold email — professional, conversational, brief (3 short paragraphs max). Reference their specific market/activity. Offer business funding/capital that helps them close more deals, grow their team, or expand their listings. Do NOT use generic phrases like "I hope this email finds you well."
+2. A LinkedIn connection message — friendly, personal, under 280 characters. Mention something specific about their work.
+
+Respond ONLY with valid JSON (no markdown):
+{
+  "email_subject": "...",
+  "email_body": "...",
+  "linkedin_message": "..."
+}`;
+
+  const response = await genai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      maxOutputTokens: 8192,
+      responseMimeType: "application/json",
+    },
+  });
+
+  const text = response.text ?? "{}";
+  const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+  return JSON.parse(cleaned);
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -107,6 +223,201 @@ export async function registerRoutes(
     }
   });
 
+  // POST /api/brokers/:id/enrich-linkedin — find LinkedIn profile via Apify
+  app.post("/api/brokers/:id/enrich-linkedin", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid broker ID" });
+        return;
+      }
+      const broker = storage.getBroker(id);
+      if (!broker) {
+        res.status(404).json({ error: "Broker not found" });
+        return;
+      }
+
+      const result = await searchLinkedInProfile(broker);
+      const now = new Date().toISOString();
+
+      await db
+        .update(brokers)
+        .set({
+          linkedin_url: result?.linkedin_url ?? null,
+          linkedin_headline: result?.linkedin_headline ?? null,
+          linkedin_location: result?.linkedin_location ?? null,
+          linkedin_enriched_at: now,
+        })
+        .where(eq(brokers.id, id));
+
+      const updated = storage.getBroker(id);
+      res.json({ found: !!result, broker: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/brokers/:id/generate-outreach — AI outreach drafts via Gemini
+  app.post("/api/brokers/:id/generate-outreach", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid broker ID" });
+        return;
+      }
+      const broker = storage.getBroker(id);
+      if (!broker) {
+        res.status(404).json({ error: "Broker not found" });
+        return;
+      }
+
+      const outreach = await generateOutreachMessages(broker);
+      const now = new Date().toISOString();
+
+      await db
+        .update(brokers)
+        .set({
+          outreach_email_subject: outreach.email_subject,
+          outreach_email_body: outreach.email_body,
+          outreach_linkedin_message: outreach.linkedin_message,
+          outreach_generated_at: now,
+        })
+        .where(eq(brokers.id, id));
+
+      const updated = storage.getBroker(id);
+      res.json({ broker: updated });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/outreach/batch — batch LinkedIn enrichment + AI outreach (SSE)
+  app.post("/api/outreach/batch", async (req, res) => {
+    const {
+      limit: rawLimit = 20,
+      state: stateFilter,
+      status: statusFilter,
+      search: searchFilter,
+      mode = "both",
+      skip_enriched = true,
+    } = req.body;
+
+    const batchLimit = Math.min(Math.max(1, parseInt(rawLimit) || 20), 100);
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const send = (data: object) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    try {
+      const conditions: any[] = [];
+      if (stateFilter) conditions.push(eq(brokers.state, stateFilter));
+      if (statusFilter) conditions.push(eq(brokers.outreach_status, statusFilter));
+      if (searchFilter) {
+        const pat = `%${searchFilter}%`;
+        conditions.push(
+          or(
+            like(brokers.full_name, pat),
+            like(brokers.email, pat),
+            like(brokers.office_name, pat)
+          )
+        );
+      }
+      if (skip_enriched && (mode === "enrich" || mode === "both")) {
+        conditions.push(isNull(brokers.linkedin_enriched_at));
+      }
+      if (skip_enriched && mode === "outreach") {
+        conditions.push(isNull(brokers.outreach_generated_at));
+      }
+
+      const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+      const batch = await db
+        .select()
+        .from(brokers)
+        .where(whereClause)
+        .limit(batchLimit);
+
+      send({ type: "start", total: batch.length });
+
+      const CONCURRENT = 3;
+      let processed = 0;
+      let succeeded = 0;
+      let failed = 0;
+
+      for (let i = 0; i < batch.length; i += CONCURRENT) {
+        const chunk = batch.slice(i, i + CONCURRENT);
+        await Promise.all(
+          chunk.map(async (broker) => {
+            try {
+              let linkedinData: any = null;
+
+              if (mode === "enrich" || mode === "both") {
+                linkedinData = await searchLinkedInProfile(broker);
+                await db
+                  .update(brokers)
+                  .set({
+                    linkedin_url: linkedinData?.linkedin_url ?? null,
+                    linkedin_headline: linkedinData?.linkedin_headline ?? null,
+                    linkedin_location: linkedinData?.linkedin_location ?? null,
+                    linkedin_enriched_at: new Date().toISOString(),
+                  })
+                  .where(eq(brokers.id, broker.id));
+              }
+
+              if (mode === "outreach" || mode === "both") {
+                const enrichedBroker = { ...broker, ...(linkedinData || {}) };
+                const outreach = await generateOutreachMessages(enrichedBroker);
+                await db
+                  .update(brokers)
+                  .set({
+                    outreach_email_subject: outreach.email_subject,
+                    outreach_email_body: outreach.email_body,
+                    outreach_linkedin_message: outreach.linkedin_message,
+                    outreach_generated_at: new Date().toISOString(),
+                  })
+                  .where(eq(brokers.id, broker.id));
+              }
+
+              succeeded++;
+              processed++;
+              send({
+                type: "progress",
+                processed,
+                total: batch.length,
+                succeeded,
+                failed,
+                broker_name: broker.full_name,
+                linkedin_found: !!(linkedinData?.linkedin_url),
+              });
+            } catch {
+              failed++;
+              processed++;
+              send({
+                type: "progress",
+                processed,
+                total: batch.length,
+                succeeded,
+                failed,
+                broker_name: broker.full_name,
+                error: true,
+              });
+            }
+          })
+        );
+      }
+
+      send({ type: "done", processed, succeeded, failed });
+    } catch (err: any) {
+      send({ type: "error", message: err.message });
+    }
+
+    res.end();
+  });
+
   // GET /api/stats — dashboard statistics
   app.get("/api/stats", (_req, res) => {
     try {
@@ -126,7 +437,6 @@ export async function registerRoutes(
       return;
     }
 
-    // Use streaming approach to avoid Node.js string size limit
     const readline = require("readline");
 
     function parseCSVLine(line: string): string[] {
@@ -161,7 +471,6 @@ export async function registerRoutes(
       return fields;
     }
 
-    // Clear existing data
     storage.clearBrokers();
 
     const fileStream = fs.createReadStream(filePath, { encoding: "utf-8" });

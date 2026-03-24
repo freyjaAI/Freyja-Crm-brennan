@@ -47,6 +47,16 @@ export const brokers = sqliteTable("brokers", {
   notes: text("notes"),
   last_contacted_at: text("last_contacted_at"),
   created_at: text("created_at"),
+  linkedin_url: text("linkedin_url"),
+  linkedin_headline: text("linkedin_headline"),
+  linkedin_location: text("linkedin_location"),
+  linkedin_connections: text("linkedin_connections"),
+  linkedin_email_found: text("linkedin_email_found"),
+  linkedin_enriched_at: text("linkedin_enriched_at"),
+  outreach_email_subject: text("outreach_email_subject"),
+  outreach_email_body: text("outreach_email_body"),
+  outreach_linkedin_message: text("outreach_linkedin_message"),
+  outreach_generated_at: text("outreach_generated_at"),
 });
 
 export const insertBrokerSchema = createInsertSchema(brokers).omit({
