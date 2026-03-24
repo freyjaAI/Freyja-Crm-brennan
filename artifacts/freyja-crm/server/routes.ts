@@ -70,11 +70,7 @@ async function searchLinkedInProfile(broker: Broker): Promise<{
   }
 }
 
-async function generateOutreachMessages(broker: Broker): Promise<{
-  email_subject: string;
-  email_body: string;
-  linkedin_message: string;
-}> {
+function buildBrokerContext(broker: Broker): string {
   const location = [broker.city, broker.state].filter(Boolean).join(", ");
   const activity = [
     broker.for_sale_count ? `${broker.for_sale_count} active listings` : null,
@@ -83,42 +79,79 @@ async function generateOutreachMessages(broker: Broker): Promise<{
   ]
     .filter(Boolean)
     .join(", ");
+  return [
+    `Name: ${broker.full_name}`,
+    `Company: ${broker.office_name || "their brokerage"}`,
+    `Title: ${broker.job_title || "Real Estate Broker"}`,
+    `Location: ${location || "Unknown"}`,
+    `Specialties: ${broker.specialties || "real estate"}`,
+    `Experience: ${broker.experience_years ? broker.experience_years + " years" : "unknown"}`,
+    activity ? `Activity: ${activity}` : null,
+    broker.linkedin_headline ? `LinkedIn headline: ${broker.linkedin_headline}` : null,
+  ]
+    .filter(Boolean)
+    .map((l) => `- ${l}`)
+    .join("\n");
+}
 
+async function generateEmail(broker: Broker): Promise<{ email_subject: string; email_body: string }> {
   const prompt = `You are an expert sales rep for a business financing company that helps real estate professionals grow their business.
 
-Generate personalized outreach for this real estate broker:
-- Name: ${broker.full_name}
-- Company: ${broker.office_name || "their brokerage"}
-- Title: ${broker.job_title || "Real Estate Broker"}
-- Location: ${location || "Unknown"}
-- Specialties: ${broker.specialties || "real estate"}
-- Experience: ${broker.experience_years ? broker.experience_years + " years" : "unknown"}
-- Activity: ${activity || "active in the market"}
-${broker.linkedin_headline ? `- LinkedIn: ${broker.linkedin_headline}` : ""}
+Broker details:
+${buildBrokerContext(broker)}
 
-Write:
-1. A personalized cold email — professional, conversational, brief (3 short paragraphs max). Reference their specific market/activity. Offer business funding/capital that helps them close more deals, grow their team, or expand their listings. Do NOT use generic phrases like "I hope this email finds you well."
-2. A LinkedIn connection message — friendly, personal, under 280 characters. Mention something specific about their work.
+Write a personalized cold email:
+- Professional, conversational, brief (3 short paragraphs max)
+- Reference their specific market/activity/specialties
+- Offer business funding/capital that helps them close more deals, grow their team, or expand listings
+- Do NOT use "I hope this email finds you well" or similar filler
 
 Respond ONLY with valid JSON (no markdown):
-{
-  "email_subject": "...",
-  "email_body": "...",
-  "linkedin_message": "..."
-}`;
+{"email_subject": "...", "email_body": "..."}`;
 
   const response = await genai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: {
-      maxOutputTokens: 8192,
-      responseMimeType: "application/json",
-    },
+    config: { maxOutputTokens: 4096, responseMimeType: "application/json" },
   });
-
   const text = response.text ?? "{}";
-  const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
-  return JSON.parse(cleaned);
+  return JSON.parse(text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim());
+}
+
+async function generateLinkedInMessage(broker: Broker): Promise<{ linkedin_message: string }> {
+  const prompt = `You are an expert sales rep for a business financing company that helps real estate professionals grow.
+
+Broker details:
+${buildBrokerContext(broker)}
+
+Write a LinkedIn connection request message:
+- Friendly and personal, NOT salesy
+- Under 280 characters
+- Mention something specific about their work or market
+- End with a soft reason to connect (no hard pitch)
+
+Respond ONLY with valid JSON (no markdown):
+{"linkedin_message": "..."}`;
+
+  const response = await genai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: { maxOutputTokens: 512, responseMimeType: "application/json" },
+  });
+  const text = response.text ?? "{}";
+  return JSON.parse(text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim());
+}
+
+async function generateOutreachMessages(broker: Broker): Promise<{
+  email_subject: string;
+  email_body: string;
+  linkedin_message: string;
+}> {
+  const [email, linkedin] = await Promise.all([
+    generateEmail(broker),
+    generateLinkedInMessage(broker),
+  ]);
+  return { ...email, ...linkedin };
 }
 
 export async function registerRoutes(
@@ -258,6 +291,7 @@ export async function registerRoutes(
   });
 
   // POST /api/brokers/:id/generate-outreach — AI outreach drafts via Gemini
+  // Body: { mode?: "email" | "linkedin" | "both" }  (defaults to "both")
   app.post("/api/brokers/:id/generate-outreach", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
@@ -271,18 +305,21 @@ export async function registerRoutes(
         return;
       }
 
-      const outreach = await generateOutreachMessages(broker);
+      const mode: "email" | "linkedin" | "both" = req.body?.mode || "both";
       const now = new Date().toISOString();
+      const fields: Record<string, string> = { outreach_generated_at: now };
 
-      await db
-        .update(brokers)
-        .set({
-          outreach_email_subject: outreach.email_subject,
-          outreach_email_body: outreach.email_body,
-          outreach_linkedin_message: outreach.linkedin_message,
-          outreach_generated_at: now,
-        })
-        .where(eq(brokers.id, id));
+      if (mode === "email" || mode === "both") {
+        const result = await generateEmail(broker);
+        fields.outreach_email_subject = result.email_subject;
+        fields.outreach_email_body = result.email_body;
+      }
+      if (mode === "linkedin" || mode === "both") {
+        const result = await generateLinkedInMessage(broker);
+        fields.outreach_linkedin_message = result.linkedin_message;
+      }
+
+      await db.update(brokers).set(fields as any).where(eq(brokers.id, id));
 
       const updated = storage.getBroker(id);
       res.json({ broker: updated });

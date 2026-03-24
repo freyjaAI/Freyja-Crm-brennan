@@ -10,7 +10,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -109,17 +108,31 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
     },
   });
 
-  const generateOutreachMutation = useMutation({
+  const generateEmailMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/brokers/${brokerId}/generate-outreach`);
+      const res = await apiRequest("POST", `/api/brokers/${brokerId}/generate-outreach`, { mode: "email" });
       return res.json();
     },
     onSuccess: () => {
       refetch();
-      toast({ title: "Outreach drafts generated!" });
+      toast({ title: "Email draft ready!" });
     },
     onError: () => {
-      toast({ title: "Failed to generate outreach", variant: "destructive" });
+      toast({ title: "Failed to generate email", variant: "destructive" });
+    },
+  });
+
+  const generateLinkedInMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/brokers/${brokerId}/generate-outreach`, { mode: "linkedin" });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetch();
+      toast({ title: "LinkedIn message ready!" });
+    },
+    onError: () => {
+      toast({ title: "Failed to generate LinkedIn message", variant: "destructive" });
     },
   });
 
@@ -480,164 +493,171 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
 
         <Separator />
 
-        {/* AI Outreach */}
+        {/* Email Outreach */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              AI Outreach
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5" />
+              Email Draft
             </h3>
             <Button
-              variant="ghost"
+              variant={broker.outreach_email_subject ? "ghost" : "outline"}
               size="sm"
-              className="h-7 text-xs gap-1.5 px-2"
-              onClick={() => generateOutreachMutation.mutate()}
-              disabled={generateOutreachMutation.isPending}
-              data-testid="button-generate-outreach"
+              className="h-7 text-xs gap-1.5 px-2.5"
+              onClick={() => generateEmailMutation.mutate()}
+              disabled={generateEmailMutation.isPending}
+              data-testid="button-generate-email"
             >
-              {generateOutreachMutation.isPending ? (
+              {generateEmailMutation.isPending ? (
                 <Loader2 className="w-3 h-3 animate-spin" />
               ) : (
                 <Sparkles className="w-3 h-3" />
               )}
-              {broker.outreach_generated_at ? "Regenerate" : "Generate"}
+              {generateEmailMutation.isPending
+                ? "Writing..."
+                : broker.outreach_email_subject
+                ? "Regenerate"
+                : "Generate Email"}
             </Button>
           </div>
 
-          {generateOutreachMutation.isPending && (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Generating personalized outreach with AI...
-            </div>
-          )}
-
           {broker.outreach_email_subject ? (
-            <Tabs defaultValue="email" className="w-full">
-              <TabsList className="w-full h-8 text-xs">
-                <TabsTrigger value="email" className="flex-1 text-xs">
-                  <Mail className="w-3 h-3 mr-1" />
-                  Email
-                </TabsTrigger>
-                <TabsTrigger value="linkedin" className="flex-1 text-xs">
-                  <Linkedin className="w-3 h-3 mr-1" />
-                  LinkedIn
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="email" className="space-y-2 mt-2">
-                {/* Subject */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                      Subject
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => copyToClipboard(broker.outreach_email_subject!, "Subject")}
-                    >
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                  </div>
-                  <p className="text-xs font-medium bg-muted/50 rounded p-2">
-                    {broker.outreach_email_subject}
-                  </p>
+            <div className="space-y-2">
+              {/* Subject row */}
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-muted-foreground mb-0.5">Subject</p>
+                  <p className="text-xs font-medium leading-snug">{broker.outreach_email_subject}</p>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 shrink-0"
+                  onClick={() => copyToClipboard(broker.outreach_email_subject!, "Subject")}
+                  title="Copy subject"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </Button>
+              </div>
 
-                {/* Body */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                      Body
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => copyToClipboard(broker.outreach_email_body!, "Email body")}
-                    >
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground bg-muted/50 rounded p-2 leading-relaxed whitespace-pre-wrap max-h-48 overflow-auto">
-                    {broker.outreach_email_body}
-                  </p>
+              {/* Body */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-muted-foreground">Body</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs gap-1"
+                    onClick={() => copyToClipboard(broker.outreach_email_body!, "Email body")}
+                  >
+                    <Copy className="w-3 h-3" />
+                    Copy
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground bg-muted/40 rounded-md p-2.5 leading-relaxed whitespace-pre-wrap max-h-44 overflow-auto border border-border/50">
+                  {broker.outreach_email_body}
+                </p>
+              </div>
 
-                {/* Open in email client */}
-                {mailtoUrl && (
-                  <a
-                    href={mailtoUrl}
-                    className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-                  >
-                    <Mail className="w-3 h-3" />
-                    Open in email client
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-
-                {broker.outreach_generated_at && (
-                  <p className="text-[10px] text-muted-foreground">
-                    Generated {new Date(broker.outreach_generated_at).toLocaleDateString()}
-                  </p>
-                )}
-              </TabsContent>
-
-              <TabsContent value="linkedin" className="space-y-2 mt-2">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                      Connection Message
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() =>
-                        copyToClipboard(broker.outreach_linkedin_message!, "LinkedIn message")
-                      }
-                    >
-                      <Copy className="w-3 h-3" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground bg-muted/50 rounded p-2 leading-relaxed whitespace-pre-wrap">
-                    {broker.outreach_linkedin_message}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground text-right">
-                    {(broker.outreach_linkedin_message || "").length}/300 chars
-                  </p>
-                </div>
-
-                {broker.linkedin_url ? (
-                  <a
-                    href={broker.linkedin_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-[#0077b5] hover:underline"
-                  >
-                    <Linkedin className="w-3 h-3" />
-                    Open LinkedIn Profile
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                ) : (
-                  <a
-                    href={linkedInManualSearchUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-primary hover:underline"
-                  >
-                    <Search className="w-3 h-3" />
-                    Find on LinkedIn
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                )}
-              </TabsContent>
-            </Tabs>
-          ) : !generateOutreachMutation.isPending ? (
+              {mailtoUrl && (
+                <a
+                  href={mailtoUrl}
+                  className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                >
+                  <Mail className="w-3 h-3" />
+                  Open in email client
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          ) : (
             <p className="text-xs text-muted-foreground">
-              Click "Generate" to create a personalized email and LinkedIn message for this lead.
+              Generate a personalized cold email for this broker.
             </p>
-          ) : null}
+          )}
+        </div>
+
+        <Separator />
+
+        {/* LinkedIn Message */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Linkedin className="w-3.5 h-3.5" />
+              LinkedIn Message
+            </h3>
+            <Button
+              variant={broker.outreach_linkedin_message ? "ghost" : "outline"}
+              size="sm"
+              className="h-7 text-xs gap-1.5 px-2.5"
+              onClick={() => generateLinkedInMutation.mutate()}
+              disabled={generateLinkedInMutation.isPending}
+              data-testid="button-generate-linkedin"
+            >
+              {generateLinkedInMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
+              {generateLinkedInMutation.isPending
+                ? "Writing..."
+                : broker.outreach_linkedin_message
+                ? "Regenerate"
+                : "Generate Message"}
+            </Button>
+          </div>
+
+          {broker.outreach_linkedin_message ? (
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground bg-muted/40 rounded-md p-2.5 leading-relaxed whitespace-pre-wrap border border-border/50">
+                  {broker.outreach_linkedin_message}
+                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-muted-foreground">
+                    {(broker.outreach_linkedin_message || "").length}/280 chars
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs gap-1"
+                    onClick={() => copyToClipboard(broker.outreach_linkedin_message!, "LinkedIn message")}
+                  >
+                    <Copy className="w-3 h-3" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
+
+              {broker.linkedin_url ? (
+                <a
+                  href={broker.linkedin_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-[#0077b5] hover:underline"
+                >
+                  <Linkedin className="w-3 h-3" />
+                  Open LinkedIn Profile
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              ) : (
+                <a
+                  href={linkedInManualSearchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-primary hover:underline"
+                >
+                  <Search className="w-3 h-3" />
+                  Find on LinkedIn
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Generate a short connection request message for LinkedIn.
+            </p>
+          )}
         </div>
 
         <Separator />
