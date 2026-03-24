@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -12,8 +12,8 @@ export const outreachStatusEnum = [
 
 export type OutreachStatus = (typeof outreachStatusEnum)[number];
 
-export const brokers = sqliteTable("brokers", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const brokers = pgTable("brokers", {
+  id: serial("id").primaryKey(),
   full_name: text("full_name").notNull(),
   first_name: text("first_name"),
   last_name: text("last_name"),

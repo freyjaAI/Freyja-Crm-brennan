@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "postgresql-16"]
 
   [deployment]
   deploymentTarget = "autoscale"
@@ -22,9 +22,12 @@ externalPort = 80
 
   [agent]
   stack = "PNPM_WORKSPACE"
-  expertMode = true
+expertMode = true
 
   [postMerge]
   path = "scripts/post-merge.sh"
   timeoutMs = 20000
+
+[nix]
+channel = "stable-25_05"
   

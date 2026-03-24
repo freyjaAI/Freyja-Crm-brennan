@@ -176,7 +176,7 @@ export async function registerRoutes(
   app.use("/api", requireAuth);
 
   // GET /api/brokers — paginated list with search/filter/sort
-  app.get("/api/brokers", (req, res) => {
+  app.get("/api/brokers", async (req, res) => {
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);
       const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
@@ -187,7 +187,7 @@ export async function registerRoutes(
       const sort_by = (req.query.sort_by as string) || undefined;
       const sort_order = (req.query.sort_order as string) || undefined;
 
-      const result = storage.getBrokers({
+      const result = await storage.getBrokers({
         page,
         limit,
         search,
@@ -205,14 +205,14 @@ export async function registerRoutes(
   });
 
   // GET /api/brokers/export — export filtered brokers as CSV
-  app.get("/api/brokers/export", (req, res) => {
+  app.get("/api/brokers/export", async (req, res) => {
     try {
       const search = (req.query.search as string) || undefined;
       const state = (req.query.state as string) || undefined;
       const status = (req.query.status as string) || undefined;
       const assigned_to = (req.query.assigned_to as string) || undefined;
 
-      const brokersList = storage.getFilteredBrokersForExport({
+      const brokersList = await storage.getFilteredBrokersForExport({
         search,
         state,
         status,
@@ -229,14 +229,14 @@ export async function registerRoutes(
   });
 
   // GET /api/brokers/:id — single broker detail
-  app.get("/api/brokers/:id", (req, res) => {
+  app.get("/api/brokers/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         res.status(400).json({ error: "Invalid broker ID" });
         return;
       }
-      const broker = storage.getBroker(id);
+      const broker = await storage.getBroker(id);
       if (!broker) {
         res.status(404).json({ error: "Broker not found" });
         return;
@@ -248,7 +248,7 @@ export async function registerRoutes(
   });
 
   // PATCH /api/brokers/:id — update outreach fields
-  app.patch("/api/brokers/:id", (req, res) => {
+  app.patch("/api/brokers/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
@@ -262,7 +262,7 @@ export async function registerRoutes(
         return;
       }
 
-      const updated = storage.updateBroker(id, parsed.data);
+      const updated = await storage.updateBroker(id, parsed.data);
       if (!updated) {
         res.status(404).json({ error: "Broker not found" });
         return;
@@ -281,7 +281,7 @@ export async function registerRoutes(
         res.status(400).json({ error: "Invalid broker ID" });
         return;
       }
-      const broker = storage.getBroker(id);
+      const broker = await storage.getBroker(id);
       if (!broker) {
         res.status(404).json({ error: "Broker not found" });
         return;
@@ -300,7 +300,7 @@ export async function registerRoutes(
         })
         .where(eq(brokers.id, id));
 
-      const updated = storage.getBroker(id);
+      const updated = await storage.getBroker(id);
       res.json({ found: !!result, broker: updated });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -316,7 +316,7 @@ export async function registerRoutes(
         res.status(400).json({ error: "Invalid broker ID" });
         return;
       }
-      const broker = storage.getBroker(id);
+      const broker = await storage.getBroker(id);
       if (!broker) {
         res.status(404).json({ error: "Broker not found" });
         return;
@@ -338,7 +338,7 @@ export async function registerRoutes(
 
       await db.update(brokers).set(fields as any).where(eq(brokers.id, id));
 
-      const updated = storage.getBroker(id);
+      const updated = await storage.getBroker(id);
       res.json({ broker: updated });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -473,9 +473,9 @@ export async function registerRoutes(
   });
 
   // GET /api/stats — dashboard statistics
-  app.get("/api/stats", (_req, res) => {
+  app.get("/api/stats", async (_req, res) => {
     try {
-      const stats = storage.getStats();
+      const stats = await storage.getStats();
       res.json(stats);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -483,7 +483,7 @@ export async function registerRoutes(
   });
 
   // POST /api/import — streaming CSV import from filesystem (handles 2M+ records)
-  app.post("/api/import", (req, res) => {
+  app.post("/api/import", async (req, res) => {
     const filePath = req.body.filePath || "/home/user/workspace/brokers_consolidated.csv";
 
     if (!fs.existsSync(filePath)) {
@@ -525,16 +525,14 @@ export async function registerRoutes(
       return fields;
     }
 
-    storage.clearBrokers();
+    await storage.clearBrokers();
 
     const fileStream = fs.createReadStream(filePath, { encoding: "utf-8" });
     const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
     let headers: string[] | null = null;
     const headerMap: Record<string, number> = {};
-    let batch: any[] = [];
-    const BATCH_SIZE = 5000;
-    let totalImported = 0;
+    const allRecords: any[] = [];
     const now = new Date().toISOString();
 
     rl.on("line", (line: string) => {
@@ -553,7 +551,7 @@ export async function registerRoutes(
         return val && val !== "" ? val : null;
       };
 
-      batch.push({
+      allRecords.push({
         full_name: get("full_name") || "Unknown",
         first_name: get("first_name"),
         last_name: get("last_name"),
@@ -588,20 +586,15 @@ export async function registerRoutes(
         last_contacted_at: null,
         created_at: now,
       });
-
-      if (batch.length >= BATCH_SIZE) {
-        storage.importBrokersBatch(batch);
-        totalImported += batch.length;
-        batch = [];
-      }
     });
 
-    rl.on("close", () => {
-      if (batch.length > 0) {
-        storage.importBrokersBatch(batch);
-        totalImported += batch.length;
+    rl.on("close", async () => {
+      try {
+        await storage.importBrokersBatch(allRecords);
+        res.json({ success: true, imported: allRecords.length, total: allRecords.length });
+      } catch (err: any) {
+        res.status(500).json({ error: err.message });
       }
-      res.json({ success: true, imported: totalImported, total: totalImported });
     });
 
     rl.on("error", (err: any) => {

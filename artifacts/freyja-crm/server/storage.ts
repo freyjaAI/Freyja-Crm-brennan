@@ -4,14 +4,12 @@ import {
   type UpdateBroker,
   brokers,
 } from "@shared/schema";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
 import { eq, like, or, and, sql, desc, asc, count } from "drizzle-orm";
 
-const sqlite = new Database("data.db");
-sqlite.pragma("journal_mode = WAL");
-
-export const db = drizzle(sqlite);
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+export const db = drizzle(pool);
 
 export interface IStorage {
   getBrokers(params: {
@@ -23,29 +21,29 @@ export interface IStorage {
     assigned_to?: string;
     sort_by?: string;
     sort_order?: string;
-  }): { brokers: Broker[]; total: number; page: number; totalPages: number };
+  }): Promise<{ brokers: Broker[]; total: number; page: number; totalPages: number }>;
 
-  getBroker(id: number): Broker | undefined;
-  updateBroker(id: number, data: UpdateBroker): Broker | undefined;
-  getStats(): {
+  getBroker(id: number): Promise<Broker | undefined>;
+  updateBroker(id: number, data: UpdateBroker): Promise<Broker | undefined>;
+  getStats(): Promise<{
     total: number;
     byStatus: Record<string, number>;
     byState: { state: string; count: number }[];
     bySourceType: { source_type: string; count: number }[];
-  };
-  importBrokers(records: InsertBroker[]): number;
-  importBrokersBatch(records: InsertBroker[]): void;
-  clearBrokers(): void;
+  }>;
+  importBrokers(records: InsertBroker[]): Promise<number>;
+  importBrokersBatch(records: InsertBroker[]): Promise<void>;
+  clearBrokers(): Promise<void>;
   getFilteredBrokersForExport(params: {
     search?: string;
     state?: string;
     status?: string;
     assigned_to?: string;
-  }): Broker[];
+  }): Promise<Broker[]>;
 }
 
 export class DatabaseStorage implements IStorage {
-  getBrokers(params: {
+  async getBrokers(params: {
     page: number;
     limit: number;
     search?: string;
@@ -70,58 +68,38 @@ export class DatabaseStorage implements IStorage {
       );
     }
 
-    if (state) {
-      conditions.push(eq(brokers.state, state));
-    }
-
-    if (status) {
-      conditions.push(eq(brokers.outreach_status, status));
-    }
-
-    if (assigned_to) {
-      conditions.push(eq(brokers.assigned_to, assigned_to));
-    }
+    if (state) conditions.push(eq(brokers.state, state));
+    if (status) conditions.push(eq(brokers.outreach_status, status));
+    if (assigned_to) conditions.push(eq(brokers.assigned_to, assigned_to));
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    // Get total count
-    const countResult = db
-      .select({ value: count() })
-      .from(brokers)
-      .where(whereClause)
-      .get();
-    const total = countResult?.value ?? 0;
+    const [countResult, results] = await Promise.all([
+      db.select({ value: count() }).from(brokers).where(whereClause),
+      db
+        .select()
+        .from(brokers)
+        .where(whereClause)
+        .orderBy(
+          sort_order === "desc"
+            ? desc(sort_by && sort_by in brokers ? (brokers as any)[sort_by] : brokers.id)
+            : asc(sort_by && sort_by in brokers ? (brokers as any)[sort_by] : brokers.id)
+        )
+        .limit(limit)
+        .offset((page - 1) * limit),
+    ]);
 
-    // Determine sort column
-    const sortColumn = sort_by && sort_by in brokers
-      ? (brokers as any)[sort_by]
-      : brokers.id;
-    const sortDirection = sort_order === "desc" ? desc(sortColumn) : asc(sortColumn);
+    const total = Number(countResult[0]?.value ?? 0);
 
-    const offset = (page - 1) * limit;
-
-    const results = db
-      .select()
-      .from(brokers)
-      .where(whereClause)
-      .orderBy(sortDirection)
-      .limit(limit)
-      .offset(offset)
-      .all();
-
-    return {
-      brokers: results,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    };
+    return { brokers: results, total, page, totalPages: Math.ceil(total / limit) };
   }
 
-  getBroker(id: number): Broker | undefined {
-    return db.select().from(brokers).where(eq(brokers.id, id)).get();
+  async getBroker(id: number): Promise<Broker | undefined> {
+    const rows = await db.select().from(brokers).where(eq(brokers.id, id));
+    return rows[0];
   }
 
-  updateBroker(id: number, data: UpdateBroker): Broker | undefined {
+  async updateBroker(id: number, data: UpdateBroker): Promise<Broker | undefined> {
     const updateData: any = {};
     if (data.outreach_status !== undefined) updateData.outreach_status = data.outreach_status;
     if (data.assigned_to !== undefined) updateData.assigned_to = data.assigned_to;
@@ -130,102 +108,68 @@ export class DatabaseStorage implements IStorage {
 
     if (Object.keys(updateData).length === 0) return this.getBroker(id);
 
-    db.update(brokers).set(updateData).where(eq(brokers.id, id)).run();
+    await db.update(brokers).set(updateData).where(eq(brokers.id, id));
     return this.getBroker(id);
   }
 
-  getStats() {
-    const totalResult = db.select({ value: count() }).from(brokers).get();
-    const total = totalResult?.value ?? 0;
+  async getStats() {
+    const [totalResult, statusResults, stateResults, sourceResults] = await Promise.all([
+      db.select({ value: count() }).from(brokers),
+      db.select({ status: brokers.outreach_status, count: count() }).from(brokers).groupBy(brokers.outreach_status),
+      db
+        .select({ state: brokers.state, count: count() })
+        .from(brokers)
+        .groupBy(brokers.state)
+        .orderBy(desc(count()))
+        .limit(10),
+      db
+        .select({ source_type: brokers.source_type, count: count() })
+        .from(brokers)
+        .groupBy(brokers.source_type)
+        .orderBy(desc(count())),
+    ]);
 
-    // By status
-    const statusResults = db
-      .select({
-        status: brokers.outreach_status,
-        count: count(),
-      })
-      .from(brokers)
-      .groupBy(brokers.outreach_status)
-      .all();
+    const total = Number(totalResult[0]?.value ?? 0);
 
     const byStatus: Record<string, number> = {};
     for (const row of statusResults) {
-      byStatus[row.status || "not_contacted"] = row.count;
+      byStatus[row.status || "not_contacted"] = Number(row.count);
     }
-
-    // By state (top 10)
-    const stateResults = db
-      .select({
-        state: brokers.state,
-        count: count(),
-      })
-      .from(brokers)
-      .groupBy(brokers.state)
-      .orderBy(desc(count()))
-      .limit(10)
-      .all();
 
     const byState = stateResults
       .filter((r) => r.state)
-      .map((r) => ({
-        state: r.state!,
-        count: r.count,
-      }));
-
-    // By source type
-    const sourceResults = db
-      .select({
-        source_type: brokers.source_type,
-        count: count(),
-      })
-      .from(brokers)
-      .groupBy(brokers.source_type)
-      .orderBy(desc(count()))
-      .all();
+      .map((r) => ({ state: r.state!, count: Number(r.count) }));
 
     const bySourceType = sourceResults
       .filter((r) => r.source_type)
-      .map((r) => ({
-        source_type: r.source_type!,
-        count: r.count,
-      }));
+      .map((r) => ({ source_type: r.source_type!, count: Number(r.count) }));
 
     return { total, byStatus, byState, bySourceType };
   }
 
-  importBrokers(records: InsertBroker[]): number {
-    // Clear existing data before import
-    db.delete(brokers).run();
-    let imported = 0;
-    // batch insert in chunks of 500
-    const chunkSize = 500;
-    for (let i = 0; i < records.length; i += chunkSize) {
-      const chunk = records.slice(i, i + chunkSize);
-      db.insert(brokers).values(chunk).run();
-      imported += chunk.length;
-    }
-    return imported;
+  async importBrokers(records: InsertBroker[]): Promise<number> {
+    await db.delete(brokers);
+    await this.importBrokersBatch(records);
+    return records.length;
   }
 
-  clearBrokers(): void {
-    db.delete(brokers).run();
+  async clearBrokers(): Promise<void> {
+    await db.delete(brokers);
   }
 
-  importBrokersBatch(records: InsertBroker[]): void {
-    // Insert a batch of records (used by streaming import)
+  async importBrokersBatch(records: InsertBroker[]): Promise<void> {
     const chunkSize = 500;
     for (let i = 0; i < records.length; i += chunkSize) {
-      const chunk = records.slice(i, i + chunkSize);
-      db.insert(brokers).values(chunk).run();
+      await db.insert(brokers).values(records.slice(i, i + chunkSize));
     }
   }
 
-  getFilteredBrokersForExport(params: {
+  async getFilteredBrokersForExport(params: {
     search?: string;
     state?: string;
     status?: string;
     assigned_to?: string;
-  }): Broker[] {
+  }): Promise<Broker[]> {
     const { search, state, status, assigned_to } = params;
     const conditions: any[] = [];
 
@@ -246,8 +190,7 @@ export class DatabaseStorage implements IStorage {
     if (assigned_to) conditions.push(eq(brokers.assigned_to, assigned_to));
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
-    return db.select().from(brokers).where(whereClause).all();
+    return db.select().from(brokers).where(whereClause);
   }
 }
 
