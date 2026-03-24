@@ -50,6 +50,18 @@ Every package extends `tsconfig.base.json` which sets `composite: true`. The roo
 
 ## Packages
 
+### `artifacts/freyja-crm` (standalone, not a pnpm workspace package)
+
+Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embedded SQLite database.
+
+- **Database**: `artifacts/freyja-crm/data.db` — SQLite (~1.5 GB, 2,618,852 broker records across all 50 US states)
+- **Server**: Express 5 serving both the API and the React frontend from `dist/`
+- **Run**: `bash -c 'cd /home/runner/workspace/artifacts/freyja-crm && NODE_ENV=production node dist/index.cjs'`
+- **Port**: 25814 (mapped to `/` preview path)
+- **Native module**: `better-sqlite3` — compiled with `make` inside `node_modules/better-sqlite3/build/`
+- Source files live under `server/`, `client/`, `shared/`; production dist is pre-built in `dist/`
+- Do NOT run pnpm commands for this artifact — it uses plain `npm` and its own `node_modules`
+
 ### `artifacts/api-server` (`@workspace/api-server`)
 
 Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
