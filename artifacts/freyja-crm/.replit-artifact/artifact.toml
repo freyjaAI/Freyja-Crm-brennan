@@ -1,21 +1,31 @@
 kind = "web"
-previewPath = "/"
-title = "Freyja IQ Broker CRM"
-version = "1.0.0"
-id = "artifacts/freyja-crm"
-router = "path"
+  previewPath = "/"
+  title = "Freyja IQ Broker CRM"
+  version = "1.0.0"
+  id = "artifacts/freyja-crm"
+  router = "path"
 
-[[integratedSkills]]
-name = "react-vite"
-version = "1.0.0"
+  [[integratedSkills]]
+  name = "react-vite"
+  version = "1.0.0"
 
-[[services]]
-name = "web"
-paths = [ "/" ]
-localPort = 25814
+  [[services]]
+  name = "web"
+  paths = [ "/" ]
+  localPort = 25814
 
-[services.development]
-run = "bash -c 'cd /home/runner/workspace/artifacts/freyja-crm && NODE_ENV=production node dist/index.cjs'"
+  [services.development]
+  run = "bash -c 'cd /home/runner/workspace/artifacts/freyja-crm && NODE_ENV=production node dist/index.cjs'"
 
-[services.env]
-PORT = "25814"
+  [services.env]
+  PORT = "25814"
+
+  [services.production]
+
+  [services.production.run]
+  args = ["node", "artifacts/freyja-crm/dist/index.cjs"]
+
+  [services.production.run.env]
+  PORT = "8080"
+  NODE_ENV = "production"
+  

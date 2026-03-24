@@ -1,7 +1,7 @@
 modules = ["nodejs-24"]
 
   [[artifacts]]
-  id = "artifacts/api-server"
+  id = "artifacts/freyja-crm"
 
   [[artifacts]]
   id = "artifacts/mockup-sandbox"
@@ -9,7 +9,6 @@ modules = ["nodejs-24"]
   [deployment]
   router = "application"
   deploymentTarget = "autoscale"
-  run = ["bash", "-c", "NODE_ENV=production node artifacts/freyja-crm/dist/index.cjs"]
 
   [workflows]
   runButton = "Project"
