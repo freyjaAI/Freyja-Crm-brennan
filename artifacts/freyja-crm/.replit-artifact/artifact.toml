@@ -11,17 +11,15 @@ kind = "web"
 
   [[services]]
   name = "web"
-  paths = [ "/" ]
+  paths = ["/"]
   localPort = 8080
-
-  [services.development]
-  run = "bash -c 'cd /home/runner/workspace/artifacts/freyja-crm && NODE_ENV=production node dist/index.cjs'"
 
   [services.env]
   PORT = "8080"
   NODE_ENV = "production"
 
-  [services.production]
+  [services.development]
+  run = "bash -c 'cd /home/runner/workspace/artifacts/freyja-crm && NODE_ENV=production node dist/index.cjs'"
 
   [services.production.build]
   args = ["pnpm", "--filter", "rest-express", "run", "build"]
