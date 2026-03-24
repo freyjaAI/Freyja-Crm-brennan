@@ -23,6 +23,12 @@ kind = "web"
 
   [services.production]
 
+  [services.production.build]
+  args = ["pnpm", "--filter", "rest-express", "run", "build"]
+
+  [services.production.build.env]
+  NODE_ENV = "production"
+
   [services.production.run]
   args = ["node", "artifacts/freyja-crm/dist/index.cjs"]
 
