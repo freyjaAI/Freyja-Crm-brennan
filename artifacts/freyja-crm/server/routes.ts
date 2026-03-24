@@ -97,6 +97,18 @@ function buildBrokerContext(broker: Broker): string {
     .join("\n");
 }
 
+function parseJsonResponse(text: string): any {
+  const cleaned = text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // Try to extract JSON object from the text
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error(`Could not parse JSON from response: ${cleaned.slice(0, 200)}`);
+  }
+}
+
 async function generateEmail(broker: Broker): Promise<{ email_subject: string; email_body: string }> {
   const prompt = `You are an expert sales rep for a business financing company that helps real estate professionals grow their business.
 
@@ -115,10 +127,9 @@ Respond ONLY with valid JSON (no markdown):
   const response = await genai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { maxOutputTokens: 4096, responseMimeType: "application/json" },
+    config: { maxOutputTokens: 8192, responseMimeType: "application/json" },
   });
-  const text = response.text ?? "{}";
-  return JSON.parse(text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim());
+  return parseJsonResponse(response.text ?? "{}");
 }
 
 async function generateLinkedInMessage(broker: Broker): Promise<{ linkedin_message: string }> {
@@ -129,7 +140,7 @@ ${buildBrokerContext(broker)}
 
 Write a LinkedIn connection request message:
 - Friendly and personal, NOT salesy
-- Under 280 characters
+- Keep it under 280 characters total
 - Mention something specific about their work or market
 - End with a soft reason to connect (no hard pitch)
 
@@ -139,10 +150,9 @@ Respond ONLY with valid JSON (no markdown):
   const response = await genai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { maxOutputTokens: 512, responseMimeType: "application/json" },
+    config: { maxOutputTokens: 8192, responseMimeType: "application/json" },
   });
-  const text = response.text ?? "{}";
-  return JSON.parse(text.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim());
+  return parseJsonResponse(response.text ?? "{}");
 }
 
 async function generateOutreachMessages(broker: Broker): Promise<{
