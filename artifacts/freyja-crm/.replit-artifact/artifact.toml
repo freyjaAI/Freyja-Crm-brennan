@@ -12,13 +12,14 @@ kind = "web"
   [[services]]
   name = "web"
   paths = [ "/" ]
-  localPort = 25814
+  localPort = 8080
 
   [services.development]
   run = "bash -c 'cd /home/runner/workspace/artifacts/freyja-crm && NODE_ENV=production node dist/index.cjs'"
 
   [services.env]
-  PORT = "25814"
+  PORT = "8080"
+  NODE_ENV = "production"
 
   [services.production]
 
