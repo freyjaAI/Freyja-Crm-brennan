@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import { updateBrokerSchema, brokers } from "@shared/schema";
 import type { Broker } from "@shared/schema";
+import { requireAuth } from "./auth";
 import fs from "fs";
 import Papa from "papaparse";
 import { eq, isNull, or, and, like, sql } from "drizzle-orm";
@@ -171,6 +172,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Protect all /api routes — login/logout/me are registered before this in index.ts
+  app.use("/api", requireAuth);
+
   // GET /api/brokers — paginated list with search/filter/sort
   app.get("/api/brokers", (req, res) => {
     try {

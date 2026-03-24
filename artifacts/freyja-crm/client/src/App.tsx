@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Switch, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient } from "./lib/queryClient";
@@ -10,6 +11,7 @@ import Dashboard from "@/pages/dashboard";
 import Brokers from "@/pages/brokers";
 import ImportData from "@/pages/import";
 import NotFound from "@/pages/not-found";
+import LoginPage from "@/pages/login";
 
 function AppRouter() {
   return (
@@ -24,7 +26,41 @@ function AppRouter() {
   );
 }
 
+type AuthState = "loading" | "authenticated" | "unauthenticated";
+
 function App() {
+  const [authState, setAuthState] = useState<AuthState>("loading");
+
+  const checkAuth = () => {
+    fetch("/api/me", { credentials: "include" })
+      .then((res) => {
+        setAuthState(res.ok ? "authenticated" : "unauthenticated");
+      })
+      .catch(() => setAuthState("unauthenticated"));
+  };
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  if (authState === "loading") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-950">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (authState === "unauthenticated") {
+    return (
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <LoginPage onLogin={() => setAuthState("authenticated")} />
+        </ThemeProvider>
+      </QueryClientProvider>
+    );
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

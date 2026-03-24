@@ -1,5 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
 import { registerRoutes } from "./routes";
+import { registerAuthRoutes } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -13,6 +15,15 @@ declare module "http" {
 }
 
 app.use(
+  session({
+    secret: "freyja-crm-session-secret-2024",
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false, httpOnly: true, maxAge: 8 * 60 * 60 * 1000 },
+  })
+);
+
+app.use(
   express.json({
     verify: (req, _res, buf) => {
       req.rawBody = buf;
@@ -21,6 +32,8 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+registerAuthRoutes(app);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
