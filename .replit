@@ -6,13 +6,15 @@ modules = ["nodejs-24"]
   [deployment]
   router = "application"
   deploymentTarget = "autoscale"
+  build = ["pnpm", "--filter", "rest-express", "run", "build"]
+  run = ["node", "artifacts/freyja-crm/dist/index.cjs"]
 
   [workflows]
   runButton = "Project"
 
   [agent]
   stack = "PNPM_WORKSPACE"
-expertMode = true
+  expertMode = true
 
   [postMerge]
   path = "scripts/post-merge.sh"
