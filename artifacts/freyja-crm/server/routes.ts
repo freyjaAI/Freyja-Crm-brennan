@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, db, pool } from "./storage";
-import { updateBrokerSchema, brokers } from "@shared/schema";
+import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers } from "@shared/schema";
 import type { Broker } from "@shared/schema";
 import { requireAuth } from "./auth";
 import fs from "fs";
@@ -700,6 +700,145 @@ export async function registerRoutes(
     rl.on("error", (err: any) => {
       res.status(500).json({ error: err.message });
     });
+  });
+
+  // ── Outreach Log ──────────────────────────────────────────────────────────
+
+  // GET /api/outreach-log — all outreach entries with broker join (paginated, filterable)
+  app.get("/api/outreach-log", async (req, res) => {
+    try {
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const status = (req.query.status as string) || undefined;
+      const outreach_type = (req.query.outreach_type as string) || undefined;
+      const dateFrom = (req.query.dateFrom as string) || undefined;
+      const dateTo = (req.query.dateTo as string) || undefined;
+      const overdue = req.query.overdue === "true" ? true : false;
+
+      const result = await storage.getAllOutreachLog({ page, limit, status, outreach_type, dateFrom, dateTo, overdue });
+      res.json({ logs: result.logs, total: result.total, page, totalPages: Math.ceil(result.total / limit) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/outreach-log/stats — summary stats for outreach dashboard
+  app.get("/api/outreach-log/stats", async (_req, res) => {
+    try {
+      const stats = await storage.getOutreachStats();
+      res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/brokers/:id/outreach-log — outreach log for one broker
+  app.get("/api/brokers/:id/outreach-log", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      const logs = await storage.getOutreachLog(id);
+      res.json(logs);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/brokers/:id/outreach-log — log an outreach event
+  app.post("/api/brokers/:id/outreach-log", async (req, res) => {
+    try {
+      const broker_id = parseInt(req.params.id);
+      if (isNaN(broker_id)) return res.status(400).json({ error: "Invalid id" });
+      const parsed = insertOutreachLogSchema.safeParse({ ...req.body, broker_id });
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+      const log = await storage.createOutreachLog(parsed.data);
+      // Auto-update broker outreach_status to "contacted" if it's still "not_contacted"
+      const broker = await storage.getBroker(broker_id);
+      if (broker && (broker.outreach_status === "not_contacted" || !broker.outreach_status)) {
+        await storage.updateBroker(broker_id, { outreach_status: "contacted" });
+      }
+      res.json(log);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/outreach-log/:id — update an outreach log entry
+  app.patch("/api/outreach-log/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      const parsed = updateOutreachLogSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+      const log = await storage.updateOutreachLog(id, parsed.data);
+      if (!log) return res.status(404).json({ error: "Log entry not found" });
+      res.json(log);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/outreach-log/:id — delete an outreach log entry
+  app.delete("/api/outreach-log/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      await storage.deleteOutreachLog(id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Message Templates ──────────────────────────────────────────────────────
+
+  // GET /api/message-templates
+  app.get("/api/message-templates", async (_req, res) => {
+    try {
+      const templates = await storage.getMessageTemplates();
+      res.json(templates);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/message-templates
+  app.post("/api/message-templates", async (req, res) => {
+    try {
+      const parsed = insertMessageTemplateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+      const template = await storage.createMessageTemplate(parsed.data);
+      res.json(template);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/message-templates/:id
+  app.patch("/api/message-templates/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      const parsed = updateMessageTemplateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+      const template = await storage.updateMessageTemplate(id, parsed.data);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+      res.json(template);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/message-templates/:id
+  app.delete("/api/message-templates/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      await storage.deleteMessageTemplate(id);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   return httpServer;

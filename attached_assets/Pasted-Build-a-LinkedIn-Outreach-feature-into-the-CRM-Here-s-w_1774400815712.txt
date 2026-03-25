@@ -1,0 +1,38 @@
+Build a LinkedIn Outreach feature into the CRM. Here's what I need:
+
+**1. Database Changes:**
+- Add a `linkedin_url` column to the brokers table
+- Create a new `outreach_log` table with columns: id, broker_id, outreach_type (linkedin/email/phone), message_template_used, status (contacted/responded/meeting_set/closed/no_response), notes, created_at, follow_up_date
+- Create a `message_templates` table with columns: id, name, category (intro/follow_up/reconnect), body_text, created_at, updated_at
+
+**2. Broker Detail View - LinkedIn Outreach Panel:**
+- Add a LinkedIn section to the broker detail/profile view
+- Show the broker's LinkedIn URL with an edit field to add/update it
+- "Message on LinkedIn" button that opens their LinkedIn profile in a new tab (use URL format: https://www.linkedin.com/in/{handle})
+- When clicking "Message on LinkedIn", auto-log an outreach entry with timestamp
+- Show outreach history for that broker (list of all past outreach attempts with dates and status)
+- Add a "Copy Message" button next to a template selector dropdown so the user can pick a template, copy it to clipboard, then paste it into LinkedIn
+
+**3. Message Templates Management:**
+- Add a Message Templates page/section in admin settings
+- CRUD for templates: create, edit, delete message templates
+- Each template has a name, category, and body text
+- Support placeholder variables like {{broker_name}}, {{company_name}} that get auto-replaced when copying
+- Pre-seed with 3 default templates:
+  - "Initial Outreach" - intro message for first contact
+  - "Follow Up" - follow up after no response
+  - "Reconnect" - re-engage a cold lead
+
+**4. Outreach Tracking Dashboard:**
+- Add an "Outreach" tab/section to the main CRM navigation
+- Show summary stats: total contacted, awaiting response, meetings set, conversion rate
+- List view of all outreach with filters by status and date range
+- Follow-up reminders: highlight brokers where follow_up_date is today or overdue
+- Ability to update outreach status inline (dropdown to change status)
+
+**5. Bulk Actions from Broker List:**
+- Add a "LinkedIn" icon/button on broker rows in the main broker list
+- Clicking it opens their LinkedIn profile and logs the outreach
+- If no LinkedIn URL is set, prompt to add one
+
+Keep the UI consistent with the existing CRM design. Use the same color scheme, component patterns, and layout style.

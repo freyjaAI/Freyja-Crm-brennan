@@ -8,6 +8,8 @@ import {
   Upload,
   Sun,
   Moon,
+  MessageSquare,
+  FileText,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +45,8 @@ function FreyjaLogo() {
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/brokers", label: "Brokers", icon: Users, showCount: true },
+  { href: "/outreach", label: "Outreach", icon: MessageSquare },
+  { href: "/templates", label: "Templates", icon: FileText },
   { href: "/import", label: "Import Data", icon: Upload },
 ];
 

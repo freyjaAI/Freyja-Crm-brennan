@@ -10,6 +10,8 @@ import { AppLayout } from "@/components/AppLayout";
 import Dashboard from "@/pages/dashboard";
 import Brokers from "@/pages/brokers";
 import ImportData from "@/pages/import";
+import OutreachPage from "@/pages/outreach";
+import TemplatesPage from "@/pages/templates";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
 
@@ -19,6 +21,8 @@ function AppRouter() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/brokers" component={Brokers} />
+        <Route path="/outreach" component={OutreachPage} />
+        <Route path="/templates" component={TemplatesPage} />
         <Route path="/import" component={ImportData} />
         <Route component={NotFound} />
       </Switch>

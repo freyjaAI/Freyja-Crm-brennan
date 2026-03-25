@@ -3,12 +3,20 @@ import {
   type InsertBroker,
   type UpdateBroker,
   type FilterPreset,
+  type OutreachLog,
+  type InsertOutreachLog,
+  type UpdateOutreachLog,
+  type MessageTemplate,
+  type InsertMessageTemplate,
+  type UpdateMessageTemplate,
   brokers,
   filterPresets,
+  outreachLog,
+  messageTemplates,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import { eq, like, or, and, sql, desc, asc, count } from "drizzle-orm";
+import { eq, like, or, and, sql, desc, asc, count, lte } from "drizzle-orm";
 
 export const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 export const db = drizzle(pool);
@@ -51,12 +59,6 @@ export interface IStorage {
   importBrokers(records: InsertBroker[]): Promise<number>;
   importBrokersBatch(records: InsertBroker[]): Promise<void>;
   clearBrokers(): Promise<void>;
-  getFilteredBrokersForExport(params: {
-    search?: string;
-    state?: string;
-    status?: string;
-    assigned_to?: string;
-  }): Promise<Broker[]>;
   getFilterOptions(): Promise<{
     states: string[];
     specialties: string[];
@@ -206,6 +208,7 @@ export class DatabaseStorage implements IStorage {
     if (data.assigned_to !== undefined) updateData.assigned_to = data.assigned_to;
     if (data.notes !== undefined) updateData.notes = data.notes;
     if (data.last_contacted_at !== undefined) updateData.last_contacted_at = data.last_contacted_at;
+    if (data.linkedin_url !== undefined) updateData.linkedin_url = data.linkedin_url;
 
     if (Object.keys(updateData).length === 0) return this.getBroker(id);
 
@@ -278,35 +281,6 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getFilteredBrokersForExport(params: {
-    search?: string;
-    state?: string;
-    status?: string;
-    assigned_to?: string;
-  }): Promise<Broker[]> {
-    const { search, state, status, assigned_to } = params;
-    const conditions: any[] = [];
-
-    if (search) {
-      const searchPattern = `%${search}%`;
-      conditions.push(
-        or(
-          like(brokers.full_name, searchPattern),
-          like(brokers.email, searchPattern),
-          like(brokers.office_name, searchPattern),
-          like(brokers.city, searchPattern)
-        )
-      );
-    }
-
-    if (state) conditions.push(eq(brokers.state, state));
-    if (status) conditions.push(eq(brokers.outreach_status, status));
-    if (assigned_to) conditions.push(eq(brokers.assigned_to, assigned_to));
-
-    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-    return db.select().from(brokers).where(whereClause);
-  }
-
   async getFilterPresets(userId: string): Promise<FilterPreset[]> {
     return db.select().from(filterPresets)
       .where(eq(filterPresets.user_id, userId))
@@ -324,9 +298,143 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteFilterPreset(id: number, userId: string): Promise<boolean> {
-    const result = await db.delete(filterPresets)
+    await db.delete(filterPresets)
       .where(and(eq(filterPresets.id, id), eq(filterPresets.user_id, userId)));
     return true;
+  }
+
+  // Outreach log
+  async getOutreachLog(brokerId: number): Promise<OutreachLog[]> {
+    return db.select().from(outreachLog)
+      .where(eq(outreachLog.broker_id, brokerId))
+      .orderBy(desc(outreachLog.created_at));
+  }
+
+  async getAllOutreachLog(params: {
+    page: number;
+    limit: number;
+    status?: string;
+    outreach_type?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    overdue?: boolean;
+  }): Promise<{ logs: (OutreachLog & { broker_name: string | null; broker_state: string | null })[], total: number }> {
+    const conditions: any[] = [];
+    if (params.status) conditions.push(eq(outreachLog.status, params.status));
+    if (params.outreach_type) conditions.push(eq(outreachLog.outreach_type, params.outreach_type));
+    if (params.dateFrom) conditions.push(sql`${outreachLog.created_at} >= ${params.dateFrom}`);
+    if (params.dateTo) conditions.push(sql`${outreachLog.created_at} <= ${params.dateTo}`);
+    if (params.overdue) {
+      const today = new Date().toISOString().split("T")[0];
+      conditions.push(sql`${outreachLog.follow_up_date} IS NOT NULL AND ${outreachLog.follow_up_date} <= ${today}`);
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countResult, rows] = await Promise.all([
+      db.select({ value: count() }).from(outreachLog).where(whereClause),
+      db.select({
+        id: outreachLog.id,
+        broker_id: outreachLog.broker_id,
+        outreach_type: outreachLog.outreach_type,
+        message_template_used: outreachLog.message_template_used,
+        status: outreachLog.status,
+        notes: outreachLog.notes,
+        created_at: outreachLog.created_at,
+        follow_up_date: outreachLog.follow_up_date,
+        broker_name: brokers.full_name,
+        broker_state: brokers.state,
+      })
+        .from(outreachLog)
+        .leftJoin(brokers, eq(outreachLog.broker_id, brokers.id))
+        .where(whereClause)
+        .orderBy(desc(outreachLog.created_at))
+        .limit(params.limit)
+        .offset((params.page - 1) * params.limit),
+    ]);
+
+    return { logs: rows as any, total: Number(countResult[0]?.value ?? 0) };
+  }
+
+  async getOutreachStats(): Promise<{
+    totalContacted: number;
+    awaitingResponse: number;
+    meetingsSet: number;
+    conversions: number;
+    overdueFollowUps: number;
+  }> {
+    const today = new Date().toISOString().split("T")[0];
+    const [byStatus, overdue] = await Promise.all([
+      db.select({ status: outreachLog.status, count: count() }).from(outreachLog).groupBy(outreachLog.status),
+      db.select({ value: count() }).from(outreachLog)
+        .where(sql`${outreachLog.follow_up_date} IS NOT NULL AND ${outreachLog.follow_up_date} <= ${today} AND ${outreachLog.status} NOT IN ('closed', 'meeting_set')`),
+    ]);
+
+    const statusMap: Record<string, number> = {};
+    for (const row of byStatus) statusMap[row.status] = Number(row.count);
+
+    return {
+      totalContacted: Object.values(statusMap).reduce((a, b) => a + b, 0),
+      awaitingResponse: (statusMap["contacted"] || 0) + (statusMap["no_response"] || 0),
+      meetingsSet: statusMap["meeting_set"] || 0,
+      conversions: statusMap["closed"] || 0,
+      overdueFollowUps: Number(overdue[0]?.value ?? 0),
+    };
+  }
+
+  async createOutreachLog(data: InsertOutreachLog): Promise<OutreachLog> {
+    const [row] = await db.insert(outreachLog).values({
+      ...data,
+      created_at: new Date().toISOString(),
+    }).returning();
+    return row;
+  }
+
+  async updateOutreachLog(id: number, data: UpdateOutreachLog): Promise<OutreachLog | undefined> {
+    const updateData: any = {};
+    if (data.status !== undefined) updateData.status = data.status;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+    if (data.follow_up_date !== undefined) updateData.follow_up_date = data.follow_up_date;
+    await db.update(outreachLog).set(updateData).where(eq(outreachLog.id, id));
+    const [row] = await db.select().from(outreachLog).where(eq(outreachLog.id, id));
+    return row;
+  }
+
+  async deleteOutreachLog(id: number): Promise<void> {
+    await db.delete(outreachLog).where(eq(outreachLog.id, id));
+  }
+
+  // Message templates
+  async getMessageTemplates(): Promise<MessageTemplate[]> {
+    return db.select().from(messageTemplates).orderBy(asc(messageTemplates.id));
+  }
+
+  async getMessageTemplate(id: number): Promise<MessageTemplate | undefined> {
+    const [row] = await db.select().from(messageTemplates).where(eq(messageTemplates.id, id));
+    return row;
+  }
+
+  async createMessageTemplate(data: InsertMessageTemplate): Promise<MessageTemplate> {
+    const now = new Date().toISOString();
+    const [row] = await db.insert(messageTemplates).values({
+      ...data,
+      created_at: now,
+      updated_at: now,
+    }).returning();
+    return row;
+  }
+
+  async updateMessageTemplate(id: number, data: UpdateMessageTemplate): Promise<MessageTemplate | undefined> {
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.category !== undefined) updateData.category = data.category;
+    if (data.body_text !== undefined) updateData.body_text = data.body_text;
+    await db.update(messageTemplates).set(updateData).where(eq(messageTemplates.id, id));
+    return this.getMessageTemplate(id);
+  }
+
+  async deleteMessageTemplate(id: number): Promise<void> {
+    await db.delete(messageTemplates).where(eq(messageTemplates.id, id));
   }
 }
 

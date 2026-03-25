@@ -1,4 +1,4 @@
-import { pgTable, text, serial, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -11,6 +11,21 @@ export const outreachStatusEnum = [
 ] as const;
 
 export type OutreachStatus = (typeof outreachStatusEnum)[number];
+
+export const outreachLogStatusEnum = [
+  "contacted",
+  "responded",
+  "meeting_set",
+  "closed",
+  "no_response",
+] as const;
+export type OutreachLogStatus = (typeof outreachLogStatusEnum)[number];
+
+export const outreachLogTypeEnum = ["linkedin", "email", "phone"] as const;
+export type OutreachLogType = (typeof outreachLogTypeEnum)[number];
+
+export const templateCategoryEnum = ["intro", "follow_up", "reconnect"] as const;
+export type TemplateCategory = (typeof templateCategoryEnum)[number];
 
 export const brokers = pgTable("brokers", {
   id: serial("id").primaryKey(),
@@ -68,6 +83,7 @@ export const updateBrokerSchema = z.object({
   assigned_to: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   last_contacted_at: z.string().optional().nullable(),
+  linkedin_url: z.string().optional().nullable(),
 });
 
 export type InsertBroker = z.infer<typeof insertBrokerSchema>;
@@ -84,3 +100,58 @@ export const filterPresets = pgTable("filter_presets", {
 
 export type FilterPreset = typeof filterPresets.$inferSelect;
 export type InsertFilterPreset = typeof filterPresets.$inferInsert;
+
+export const outreachLog = pgTable("outreach_log", {
+  id: serial("id").primaryKey(),
+  broker_id: integer("broker_id").notNull(),
+  outreach_type: text("outreach_type").notNull(),
+  message_template_used: text("message_template_used"),
+  status: text("status").notNull().default("contacted"),
+  notes: text("notes"),
+  created_at: text("created_at").notNull(),
+  follow_up_date: text("follow_up_date"),
+});
+
+export const insertOutreachLogSchema = z.object({
+  broker_id: z.number(),
+  outreach_type: z.enum(outreachLogTypeEnum),
+  message_template_used: z.string().optional().nullable(),
+  status: z.enum(outreachLogStatusEnum).default("contacted"),
+  notes: z.string().optional().nullable(),
+  follow_up_date: z.string().optional().nullable(),
+});
+
+export const updateOutreachLogSchema = z.object({
+  status: z.enum(outreachLogStatusEnum).optional(),
+  notes: z.string().optional().nullable(),
+  follow_up_date: z.string().optional().nullable(),
+});
+
+export type OutreachLog = typeof outreachLog.$inferSelect;
+export type InsertOutreachLog = z.infer<typeof insertOutreachLogSchema>;
+export type UpdateOutreachLog = z.infer<typeof updateOutreachLogSchema>;
+
+export const messageTemplates = pgTable("message_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  body_text: text("body_text").notNull(),
+  created_at: text("created_at"),
+  updated_at: text("updated_at"),
+});
+
+export const insertMessageTemplateSchema = z.object({
+  name: z.string().min(1),
+  category: z.enum(templateCategoryEnum),
+  body_text: z.string().min(1),
+});
+
+export const updateMessageTemplateSchema = z.object({
+  name: z.string().min(1).optional(),
+  category: z.enum(templateCategoryEnum).optional(),
+  body_text: z.string().min(1).optional(),
+});
+
+export type MessageTemplate = typeof messageTemplates.$inferSelect;
+export type InsertMessageTemplate = z.infer<typeof insertMessageTemplateSchema>;
+export type UpdateMessageTemplate = z.infer<typeof updateMessageTemplateSchema>;
