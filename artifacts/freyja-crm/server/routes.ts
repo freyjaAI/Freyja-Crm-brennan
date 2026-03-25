@@ -219,6 +219,39 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/filter-presets", async (_req, res) => {
+    try {
+      const presets = await storage.getFilterPresets("admin");
+      res.json(presets);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/filter-presets", async (req, res) => {
+    try {
+      const { name, filters } = req.body;
+      if (!name || !filters) {
+        return res.status(400).json({ error: "name and filters are required" });
+      }
+      const preset = await storage.createFilterPreset("admin", name, filters);
+      res.json(preset);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/filter-presets/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      await storage.deleteFilterPreset(id, "admin");
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/brokers", async (req, res) => {
     try {
       const page = Math.max(1, parseInt(req.query.page as string) || 1);

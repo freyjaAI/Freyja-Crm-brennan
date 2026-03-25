@@ -2,7 +2,9 @@ import {
   type Broker,
   type InsertBroker,
   type UpdateBroker,
+  type FilterPreset,
   brokers,
+  filterPresets,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
@@ -303,6 +305,28 @@ export class DatabaseStorage implements IStorage {
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     return db.select().from(brokers).where(whereClause);
+  }
+
+  async getFilterPresets(userId: string): Promise<FilterPreset[]> {
+    return db.select().from(filterPresets)
+      .where(eq(filterPresets.user_id, userId))
+      .orderBy(asc(filterPresets.id));
+  }
+
+  async createFilterPreset(userId: string, name: string, filters: any): Promise<FilterPreset> {
+    const [preset] = await db.insert(filterPresets).values({
+      user_id: userId,
+      name,
+      filters,
+      created_at: new Date().toISOString(),
+    }).returning();
+    return preset;
+  }
+
+  async deleteFilterPreset(id: number, userId: string): Promise<boolean> {
+    const result = await db.delete(filterPresets)
+      .where(and(eq(filterPresets.id, id), eq(filterPresets.user_id, userId)));
+    return true;
   }
 }
 

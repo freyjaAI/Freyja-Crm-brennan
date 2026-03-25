@@ -1,0 +1,32 @@
+Add filter presets to the broker prospecting dashboard.
+
+Goal: Add a row of preset buttons above the filter panel that instantly apply curated filter combinations. Users should be able to click a preset to auto-fill all relevant filters, then tweak from there. Also allow users to save their own custom presets.
+
+Built-in Presets to create:
+
+1. "Top Producers" - Recently sold count min: 100, average price min: $500K, experience years min: 10, has email: true, has phone: true. Sorted by recently_sold_count desc.
+
+2. "High-Value Brokers" - Average price min: $1M, recently sold count min: 25, experience years min: 5. Sorted by avg_price desc.
+
+3. "Active Residential" - Property types: House, Condo, Townhouse. Recently sold count min: 50, has email: true. Sorted by recently_sold_count desc.
+
+4. "Commercial Specialists" - Property types: Commercial. Recently sold count min: 20, experience years min: 5. Sorted by recently_sold_count desc.
+
+5. "New & Hungry" - Experience years min: 1, experience years max: 5, recently sold count min: 25, has email: true, has phone: true. Sorted by recently_sold_count desc.
+
+6. "Land & Development" - Property types: Lot/Land. Recently sold count min: 10. Sorted by avg_price desc.
+
+Implementation requirements:
+- Add a preset bar above the existing filters panel with horizontally scrollable pill/chip buttons.
+- Clicking a preset fills all its filter values and triggers the search immediately.
+- Active preset should be visually highlighted.
+- If user modifies any filter after selecting a preset, the preset highlight should clear (showing it's now custom).
+- Add a "Save as Preset" button that lets users name and save their current filter state as a custom preset.
+- Store custom presets per-user in the database (new table: user_filter_presets with columns: id, user_id, name, filters JSON, created_at).
+- Custom presets appear after the built-in ones with an X button to delete.
+- Add a "Clear All" button at the end of the preset bar.
+- Keep styling consistent with the existing dashboard UI.
+- Reuse the existing filter state and API patterns from the advanced filters we just built.
+- Make sure the build succeeds and test the API.
+
+Do NOT touch unrelated files. Focus on: the brokers page component, routes, storage, and shared schema if needed.

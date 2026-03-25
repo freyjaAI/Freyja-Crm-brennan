@@ -1,4 +1,4 @@
-import { pgTable, text, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -73,3 +73,14 @@ export const updateBrokerSchema = z.object({
 export type InsertBroker = z.infer<typeof insertBrokerSchema>;
 export type Broker = typeof brokers.$inferSelect;
 export type UpdateBroker = z.infer<typeof updateBrokerSchema>;
+
+export const filterPresets = pgTable("filter_presets", {
+  id: serial("id").primaryKey(),
+  user_id: text("user_id").notNull().default("admin"),
+  name: text("name").notNull(),
+  filters: jsonb("filters").notNull(),
+  created_at: text("created_at"),
+});
+
+export type FilterPreset = typeof filterPresets.$inferSelect;
+export type InsertFilterPreset = typeof filterPresets.$inferInsert;

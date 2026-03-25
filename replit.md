@@ -78,6 +78,7 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - Export CSV respects all advanced filters
   - Backend: `buildProspectingConditions()` in storage.ts handles safe SQL parsing of text-formatted numeric fields (commas, $ signs, K/M suffixes, "X years" format)
   - API: `GET /api/filter-options` returns available states, specialties, source types
+  - **Filter presets**: 6 built-in presets (Top Producers, High-Value Brokers, Active Residential, Commercial Specialists, New & Hungry, Land & Development) displayed as scrollable pill buttons; custom presets saved/deleted via `filter_presets` table (id, user_id, name, filters JSONB, created_at); API: `GET/POST /api/filter-presets`, `DELETE /api/filter-presets/:id`; active preset auto-clears when any manual filter changes
 
 ### `artifacts/api-server` (`@workspace/api-server`)
 

@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Broker, OutreachStatus } from "@shared/schema";
+import type { Broker, OutreachStatus, FilterPreset } from "@shared/schema";
 import { outreachStatusEnum } from "@shared/schema";
 import { BrokerDetail } from "@/components/BrokerDetail";
 import {
@@ -52,6 +52,14 @@ import {
   ArrowUpDown,
   ArrowDown,
   ArrowUp,
+  Bookmark,
+  Plus,
+  Star,
+  Home,
+  Building2,
+  Flame,
+  TreePine,
+  TrendingUp,
 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -151,6 +159,91 @@ const defaultFilters: Filters = {
   sort_order: "asc",
 };
 
+interface BuiltInPreset {
+  id: string;
+  name: string;
+  icon: React.ReactNode;
+  filters: Partial<Filters>;
+}
+
+const BUILT_IN_PRESETS: BuiltInPreset[] = [
+  {
+    id: "top-producers",
+    name: "Top Producers",
+    icon: <Star className="w-3 h-3" />,
+    filters: {
+      dealsClosedMin: "100",
+      avgPriceMin: "500000",
+      experienceMin: "10",
+      hasEmail: true,
+      hasPhone: true,
+      sort_by: "recently_sold_count",
+      sort_order: "desc",
+    },
+  },
+  {
+    id: "high-value",
+    name: "High-Value Brokers",
+    icon: <TrendingUp className="w-3 h-3" />,
+    filters: {
+      avgPriceMin: "1000000",
+      dealsClosedMin: "25",
+      experienceMin: "5",
+      sort_by: "average_price",
+      sort_order: "desc",
+    },
+  },
+  {
+    id: "active-residential",
+    name: "Active Residential",
+    icon: <Home className="w-3 h-3" />,
+    filters: {
+      specialties: ["House", "Condo", "Townhouse"],
+      dealsClosedMin: "50",
+      hasEmail: true,
+      sort_by: "recently_sold_count",
+      sort_order: "desc",
+    },
+  },
+  {
+    id: "commercial-specialists",
+    name: "Commercial Specialists",
+    icon: <Building2 className="w-3 h-3" />,
+    filters: {
+      specialties: ["Commercial"],
+      dealsClosedMin: "20",
+      experienceMin: "5",
+      sort_by: "recently_sold_count",
+      sort_order: "desc",
+    },
+  },
+  {
+    id: "new-hungry",
+    name: "New & Hungry",
+    icon: <Flame className="w-3 h-3" />,
+    filters: {
+      experienceMin: "1",
+      experienceMax: "5",
+      dealsClosedMin: "25",
+      hasEmail: true,
+      hasPhone: true,
+      sort_by: "recently_sold_count",
+      sort_order: "desc",
+    },
+  },
+  {
+    id: "land-development",
+    name: "Land & Development",
+    icon: <TreePine className="w-3 h-3" />,
+    filters: {
+      specialties: ["Lot/Land"],
+      dealsClosedMin: "10",
+      sort_by: "average_price",
+      sort_order: "desc",
+    },
+  },
+];
+
 function formatPrice(value: string): string {
   const num = parseFloat(value);
   if (isNaN(num)) return value;
@@ -172,9 +265,12 @@ export default function Brokers() {
     state: urlParams.get("state") || "",
     status: urlParams.get("status") || "",
   });
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedBrokerId, setSelectedBrokerId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [savePresetOpen, setSavePresetOpen] = useState(false);
+  const [newPresetName, setNewPresetName] = useState("");
 
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   const [batchSize, setBatchSize] = useState(20);
@@ -206,8 +302,53 @@ export default function Brokers() {
 
   useEffect(() => { setPage(1); }, [queryFilters]);
 
+  const { data: customPresets = [] } = useQuery<FilterPreset[]>({
+    queryKey: ["/api/filter-presets"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/filter-presets");
+      return res.json();
+    },
+  });
+
+  const savePresetMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const { sort_by: _sb, sort_order: _so, ...filterData } = filters;
+      const res = await apiRequest("POST", "/api/filter-presets", {
+        name,
+        filters: { ...filterData, sort_by: filters.sort_by, sort_order: filters.sort_order },
+      });
+      return res.json();
+    },
+    onSuccess: (preset) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/filter-presets"] });
+      setSavePresetOpen(false);
+      setNewPresetName("");
+      setActivePresetId(`custom-${preset.id}`);
+      toast({ title: `Preset "${preset.name}" saved` });
+    },
+  });
+
+  const deletePresetMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/filter-presets/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/filter-presets"] });
+      toast({ title: "Preset deleted" });
+    },
+  });
+
   const updateFilter = <K extends keyof Filters>(key: K, value: Filters[K]) => {
     setFilters(prev => ({ ...prev, [key]: value }));
+    setActivePresetId(null);
+  };
+
+  const applyPreset = (presetId: string, presetFilters: Partial<Filters>) => {
+    const newFilters = { ...defaultFilters, ...presetFilters };
+    setFilters(newFilters);
+    setSearchInput(newFilters.search || "");
+    setActivePresetId(presetId);
+    setShowAdvanced(true);
   };
 
   const activeFilterCount = [
@@ -293,7 +434,8 @@ export default function Brokers() {
   });
 
   const handleSearch = useCallback(() => {
-    updateFilter("search", searchInput);
+    setFilters(prev => ({ ...prev, search: searchInput }));
+    setActivePresetId(null);
   }, [searchInput]);
 
   const handleExport = () => {
@@ -322,12 +464,14 @@ export default function Brokers() {
   const clearAllFilters = () => {
     setFilters(defaultFilters);
     setSearchInput("");
+    setActivePresetId(null);
   };
 
   const toggleSort = (field: string) => {
+    setActivePresetId(null);
     if (filters.sort_by === field) {
       if (filters.sort_order === "asc") {
-        updateFilter("sort_order", "desc");
+        setFilters(prev => ({ ...prev, sort_order: "desc" }));
       } else {
         setFilters(prev => ({ ...prev, sort_by: "", sort_order: "asc" }));
       }
@@ -344,6 +488,7 @@ export default function Brokers() {
   };
 
   const toggleSpecialty = (spec: string) => {
+    setActivePresetId(null);
     setFilters(prev => ({
       ...prev,
       specialties: prev.specialties.includes(spec)
@@ -353,12 +498,13 @@ export default function Brokers() {
   };
 
   const removeFilter = (key: keyof Filters) => {
+    setActivePresetId(null);
     if (key === "specialties") {
-      updateFilter("specialties", []);
+      setFilters(prev => ({ ...prev, specialties: [] }));
     } else if (key === "hasEmail" || key === "hasPhone" || key === "hasLinkedin") {
-      updateFilter(key, false);
+      setFilters(prev => ({ ...prev, [key]: false }));
     } else {
-      updateFilter(key, "" as any);
+      setFilters(prev => ({ ...prev, [key]: "" }));
     }
     if (key === "search") setSearchInput("");
   };
@@ -369,18 +515,18 @@ export default function Brokers() {
   if (filters.status) activeChips.push({ label: `Status: ${STATUS_LABELS[filters.status] || filters.status}`, key: "status" });
   if (filters.dealsClosedMin || filters.dealsClosedMax) {
     const min = filters.dealsClosedMin || "0";
-    const max = filters.dealsClosedMax || "∞";
-    activeChips.push({ label: `Deals: ${min}–${max}`, key: "dealsClosedMin" });
+    const max = filters.dealsClosedMax || "\u221E";
+    activeChips.push({ label: `Deals: ${min}\u2013${max}`, key: "dealsClosedMin" });
   }
   if (filters.avgPriceMin || filters.avgPriceMax) {
     const min = filters.avgPriceMin ? formatPrice(filters.avgPriceMin) : "$0";
-    const max = filters.avgPriceMax ? formatPrice(filters.avgPriceMax) : "∞";
-    activeChips.push({ label: `Avg Price: ${min}–${max}`, key: "avgPriceMin" });
+    const max = filters.avgPriceMax ? formatPrice(filters.avgPriceMax) : "\u221E";
+    activeChips.push({ label: `Avg Price: ${min}\u2013${max}`, key: "avgPriceMin" });
   }
   if (filters.experienceMin || filters.experienceMax) {
     const min = filters.experienceMin || "0";
-    const max = filters.experienceMax || "∞";
-    activeChips.push({ label: `Exp: ${min}–${max} yrs`, key: "experienceMin" });
+    const max = filters.experienceMax || "\u221E";
+    activeChips.push({ label: `Exp: ${min}\u2013${max} yrs`, key: "experienceMin" });
   }
   if (filters.specialties.length > 0) {
     activeChips.push({ label: `Types: ${filters.specialties.join(", ")}`, key: "specialties" });
@@ -438,7 +584,7 @@ export default function Brokers() {
                   failed: event.failed, done: true,
                 }));
                 queryClient.invalidateQueries({ queryKey: ["/api/brokers"] });
-                toast({ title: `Batch complete — ${event.succeeded} processed`, description: event.failed > 0 ? `${event.failed} failed` : undefined });
+                toast({ title: `Batch complete \u2014 ${event.succeeded} processed`, description: event.failed > 0 ? `${event.failed} failed` : undefined });
               }
             } catch {}
           }
@@ -470,6 +616,76 @@ export default function Brokers() {
                 Export CSV
               </Button>
             </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
+            {BUILT_IN_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => applyPreset(preset.id, preset.filters)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border whitespace-nowrap transition-all shrink-0 ${
+                  activePresetId === preset.id
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "bg-background border-border hover:bg-muted hover:border-muted-foreground/30"
+                }`}
+              >
+                {preset.icon}
+                {preset.name}
+              </button>
+            ))}
+
+            {customPresets.map((preset) => (
+              <div key={preset.id} className="flex items-center shrink-0">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => applyPreset(`custom-${preset.id}`, preset.filters as Partial<Filters>)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") applyPreset(`custom-${preset.id}`, preset.filters as Partial<Filters>); }}
+                  className={`flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 text-xs font-medium rounded-full border whitespace-nowrap transition-all cursor-pointer ${
+                    activePresetId === `custom-${preset.id}`
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-background border-border hover:bg-muted hover:border-muted-foreground/30"
+                  }`}
+                >
+                  <Bookmark className="w-3 h-3" />
+                  {preset.name}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deletePresetMutation.mutate(preset.id);
+                      if (activePresetId === `custom-${preset.id}`) setActivePresetId(null);
+                    }}
+                    className={`ml-0.5 p-0.5 rounded-full transition-colors ${
+                      activePresetId === `custom-${preset.id}`
+                        ? "hover:bg-primary-foreground/20"
+                        : "hover:bg-destructive/10 hover:text-destructive"
+                    }`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {activeFilterCount > 0 && (
+              <button
+                onClick={() => setSavePresetOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-dashed border-primary/40 text-primary hover:bg-primary/5 whitespace-nowrap transition-all shrink-0"
+              >
+                <Plus className="w-3 h-3" />
+                Save Preset
+              </button>
+            )}
+
+            {activeFilterCount > 0 && (
+              <button
+                onClick={clearAllFilters}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-border text-muted-foreground hover:bg-muted whitespace-nowrap transition-all shrink-0"
+              >
+                <X className="w-3 h-3" />
+                Clear All
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -521,13 +737,6 @@ export default function Brokers() {
               )}
               {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </Button>
-
-            {activeFilterCount > 0 && (
-              <Button variant="ghost" size="sm" onClick={clearAllFilters} className="h-9 text-sm" data-testid="button-clear-filters">
-                <X className="w-3 h-3 mr-1" />
-                Clear All
-              </Button>
-            )}
           </div>
 
           {showAdvanced && (
@@ -748,14 +957,14 @@ export default function Brokers() {
                           <span className="truncate">{broker.full_name}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{broker.email || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{broker.phone || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[140px] truncate">{broker.office_name || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{broker.city || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{broker.state || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.recently_sold_count || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.average_price || "—"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.experience_years ? `${broker.experience_years}y` : "—"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{broker.email || "\u2014"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{broker.phone || "\u2014"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground max-w-[140px] truncate">{broker.office_name || "\u2014"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{broker.city || "\u2014"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{broker.state || "\u2014"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.recently_sold_count || "\u2014"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.average_price || "\u2014"}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.experience_years ? `${broker.experience_years}y` : "\u2014"}</TableCell>
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Select
                           value={broker.outreach_status || "not_contacted"}
@@ -789,7 +998,7 @@ export default function Brokers() {
         {data && data.totalPages > 1 && (
           <div className="px-4 py-3 border-t flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              Showing {(data.page - 1) * 50 + 1}–{Math.min(data.page * 50, data.total)} of {data.total.toLocaleString()}
+              Showing {(data.page - 1) * 50 + 1}\u2013{Math.min(data.page * 50, data.total)} of {data.total.toLocaleString()}
             </span>
             <div className="flex items-center gap-1">
               <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} data-testid="button-prev-page">
@@ -807,6 +1016,44 @@ export default function Brokers() {
       {selectedBrokerId && (
         <BrokerDetail brokerId={selectedBrokerId} onClose={() => setSelectedBrokerId(null)} />
       )}
+
+      <Dialog open={savePresetOpen} onOpenChange={setSavePresetOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Bookmark className="w-4 h-4" />
+              Save Filter Preset
+            </DialogTitle>
+            <DialogDescription>
+              Save your current filters as a reusable preset.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <Input
+              placeholder="Preset name..."
+              value={newPresetName}
+              onChange={(e) => setNewPresetName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newPresetName.trim()) {
+                  savePresetMutation.mutate(newPresetName.trim());
+                }
+              }}
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button
+                onClick={() => savePresetMutation.mutate(newPresetName.trim())}
+                disabled={!newPresetName.trim() || savePresetMutation.isPending}
+                className="flex-1"
+              >
+                {savePresetMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Bookmark className="w-4 h-4 mr-2" />}
+                Save
+              </Button>
+              <Button variant="outline" onClick={() => setSavePresetOpen(false)}>Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={batchDialogOpen} onOpenChange={(open) => { if (!batchRunning) setBatchDialogOpen(open); }}>
         <DialogContent className="sm:max-w-md">
