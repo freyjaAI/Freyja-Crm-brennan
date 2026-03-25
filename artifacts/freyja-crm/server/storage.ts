@@ -64,6 +64,7 @@ export interface IStorage {
     specialties: string[];
     sourceTypes: string[];
   }>;
+  getAiLeads(limit?: number): Promise<{ brokers: (Broker & { lead_score: number })[]; total: number }>;
 }
 
 function buildProspectingConditions(params: ProspectingFilters): any[] {
@@ -435,6 +436,88 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMessageTemplate(id: number): Promise<void> {
     await db.delete(messageTemplates).where(eq(messageTemplates.id, id));
+  }
+
+  async getAiLeads(limit: number = 100): Promise<{ brokers: (Broker & { lead_score: number })[]; total: number }> {
+    const queryText = `
+      WITH candidates AS (
+        SELECT *,
+          REPLACE(recently_sold_count, ',', '')::int AS deals_num
+        FROM brokers
+        WHERE outreach_status = 'not_contacted'
+          AND email IS NOT NULL AND email != ''
+          AND REPLACE(recently_sold_count, ',', '') ~ '^[0-9]+$'
+          AND REPLACE(recently_sold_count, ',', '')::int >= 10
+      ),
+      scored AS (
+        SELECT *,
+          (
+            CASE
+              WHEN deals_num BETWEEN 50 AND 300 THEN 30
+              WHEN deals_num BETWEEN 25 AND 49 THEN 15
+              WHEN deals_num BETWEEN 301 AND 500 THEN 10
+              ELSE 0
+            END
+            +
+            CASE
+              WHEN average_price ~ '^\\$' THEN
+                CASE
+                  WHEN (
+                    CASE
+                      WHEN average_price LIKE '%M' THEN REPLACE(REPLACE(average_price, '$', ''), 'M', '')::float * 1000000
+                      WHEN average_price LIKE '%K' THEN REPLACE(REPLACE(average_price, '$', ''), 'K', '')::float * 1000
+                      ELSE COALESCE(NULLIF(REGEXP_REPLACE(REPLACE(average_price, '$', ''), '[^0-9.]', '', 'g'), '')::float, 0)
+                    END
+                  ) BETWEEN 250000 AND 1000000 THEN 25
+                  WHEN (
+                    CASE
+                      WHEN average_price LIKE '%M' THEN REPLACE(REPLACE(average_price, '$', ''), 'M', '')::float * 1000000
+                      WHEN average_price LIKE '%K' THEN REPLACE(REPLACE(average_price, '$', ''), 'K', '')::float * 1000
+                      ELSE COALESCE(NULLIF(REGEXP_REPLACE(REPLACE(average_price, '$', ''), '[^0-9.]', '', 'g'), '')::float, 0)
+                    END
+                  ) BETWEEN 150000 AND 249999 THEN 12
+                  ELSE 0
+                END
+              ELSE 0
+            END
+            +
+            CASE
+              WHEN REGEXP_REPLACE(experience_years, '[^0-9]', '', 'g') ~ '^[0-9]+$'
+                   AND REGEXP_REPLACE(experience_years, '[^0-9]', '', 'g')::int BETWEEN 5 AND 15 THEN 20
+              WHEN REGEXP_REPLACE(experience_years, '[^0-9]', '', 'g') ~ '^[0-9]+$'
+                   AND REGEXP_REPLACE(experience_years, '[^0-9]', '', 'g')::int BETWEEN 2 AND 4 THEN 10
+              ELSE 0
+            END
+            +
+            10
+            +
+            CASE WHEN phone IS NOT NULL AND phone != '' THEN 8 ELSE 0 END
+            +
+            CASE WHEN linkedin_url IS NOT NULL AND linkedin_url != '' THEN 10 ELSE 0 END
+            +
+            CASE WHEN specialties ILIKE '%House%' THEN 5 ELSE 0 END
+            +
+            CASE WHEN specialties ILIKE '%Condo%' THEN 5 ELSE 0 END
+            +
+            CASE WHEN specialties ILIKE '%Commercial%' THEN 5 ELSE 0 END
+          ) AS lead_score
+        FROM candidates
+      ),
+      total_count AS (
+        SELECT COUNT(*)::int AS cnt FROM candidates
+      )
+      SELECT s.*, tc.cnt AS total_eligible
+      FROM scored s, total_count tc
+      ORDER BY s.lead_score DESC
+      LIMIT $1
+    `;
+    const { rows } = await pool.query(queryText, [limit]);
+    const total = rows.length > 0 ? rows[0].total_eligible : 0;
+    const brokerResults = rows.map((r: any) => {
+      const { lead_score, deals_num, total_eligible, ...brokerData } = r;
+      return { ...brokerData, lead_score: Number(lead_score) };
+    });
+    return { brokers: brokerResults, total };
   }
 }
 

@@ -279,6 +279,10 @@ export default function Brokers() {
   const [batchRunning, setBatchRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  const [aiLeadsMode, setAiLeadsMode] = useState(false);
+  const [aiLeadsData, setAiLeadsData] = useState<{ brokers: (Broker & { lead_score: number })[]; total: number } | null>(null);
+  const [aiLeadsLoading, setAiLeadsLoading] = useState(false);
+
   const debouncedBrokerage = useDebounce(filters.brokerage, 400);
   const debouncedCity = useDebounce(filters.city, 400);
   const debouncedDealsMin = useDebounce(filters.dealsClosedMin, 400);
@@ -465,6 +469,30 @@ export default function Brokers() {
     setFilters(defaultFilters);
     setSearchInput("");
     setActivePresetId(null);
+    setAiLeadsMode(false);
+    setAiLeadsData(null);
+  };
+
+  const fetchAiLeads = async () => {
+    setAiLeadsLoading(true);
+    try {
+      const res = await apiRequest("GET", "/api/ai-leads?limit=100");
+      const data = await res.json();
+      setAiLeadsData(data);
+      setAiLeadsMode(true);
+      setActivePresetId("ai-leads");
+      toast({ title: `Found ${data.brokers.length} top leads`, description: `Scored from ${data.total.toLocaleString()} eligible uncontacted brokers` });
+    } catch {
+      toast({ title: "Failed to load AI leads", variant: "destructive" });
+    } finally {
+      setAiLeadsLoading(false);
+    }
+  };
+
+  const exitAiLeadsMode = () => {
+    setAiLeadsMode(false);
+    setAiLeadsData(null);
+    setActivePresetId(null);
   };
 
   const toggleSort = (field: string) => {
@@ -607,6 +635,25 @@ export default function Brokers() {
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-semibold" data-testid="brokers-title">Brokers</h1>
             <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={aiLeadsMode ? exitAiLeadsMode : fetchAiLeads}
+                disabled={aiLeadsLoading}
+                className={aiLeadsMode
+                  ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md"
+                  : "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-sm"
+                }
+                data-testid="button-ai-leads"
+              >
+                {aiLeadsLoading ? (
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                ) : aiLeadsMode ? (
+                  <X className="w-4 h-4 mr-1.5" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-1.5" />
+                )}
+                {aiLeadsLoading ? "Scoring..." : aiLeadsMode ? "Exit AI Leads" : "Find Best 100 Leads"}
+              </Button>
               <Button variant="outline" size="sm" onClick={openBatchDialog} data-testid="button-batch-enrich">
                 <Sparkles className="w-4 h-4 mr-1.5" />
                 Batch AI Enrich
@@ -896,7 +943,31 @@ export default function Brokers() {
         </div>
 
         <div className="flex-1 overflow-auto px-4 py-3">
-          {isLoading ? (
+          {aiLeadsMode && aiLeadsData && (
+            <div className="mb-3 p-3 rounded-lg bg-gradient-to-r from-violet-500/10 to-indigo-500/10 border border-violet-200 dark:border-violet-800">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-violet-600" />
+                  <span className="text-sm font-semibold text-violet-700 dark:text-violet-300">
+                    Top {aiLeadsData.brokers.length} FreyjaIQ Leads
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Scored from {aiLeadsData.total.toLocaleString()} eligible candidates (10+ deals, has email, uncontacted)
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-green-500" /> 50-300 deals</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> $250K-$1M avg</span>
+                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-violet-500" /> 5-15 yrs exp</span>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2" onClick={exitAiLeadsMode}>
+                    <X className="w-3 h-3" /> Back to all
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {(aiLeadsMode ? false : isLoading) ? (
             <div className="space-y-2">
               {[...Array(10)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}
             </div>
@@ -907,85 +978,126 @@ export default function Brokers() {
                   <TableRow className="bg-muted/50">
                     <TableHead className="w-10">
                       <Checkbox
-                        checked={data && data.brokers.length > 0 && selectedIds.size === data.brokers.length}
-                        onCheckedChange={toggleAll}
+                        checked={(() => {
+                          const rows = aiLeadsMode ? aiLeadsData?.brokers : data?.brokers;
+                          return rows && rows.length > 0 && selectedIds.size === rows.length;
+                        })()}
+                        onCheckedChange={() => {
+                          const rows = aiLeadsMode ? aiLeadsData?.brokers : data?.brokers;
+                          if (!rows) return;
+                          if (selectedIds.size === rows.length) setSelectedIds(new Set());
+                          else setSelectedIds(new Set(rows.map(b => b.id)));
+                        }}
                         data-testid="checkbox-select-all"
                       />
                     </TableHead>
-                    <TableHead className="text-xs font-medium cursor-pointer select-none" onClick={() => toggleSort("full_name")}>
-                      <span className="flex items-center">Name <SortIcon field="full_name" /></span>
+                    {aiLeadsMode && (
+                      <TableHead className="text-xs font-medium w-16">
+                        <span className="flex items-center gap-1">
+                          <Sparkles className="w-3 h-3 text-violet-500" /> Score
+                        </span>
+                      </TableHead>
+                    )}
+                    <TableHead className="text-xs font-medium cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("full_name")}>
+                      <span className="flex items-center">Name {!aiLeadsMode && <SortIcon field="full_name" />}</span>
                     </TableHead>
                     <TableHead className="text-xs font-medium">Email</TableHead>
                     <TableHead className="text-xs font-medium">Phone</TableHead>
-                    <TableHead className="text-xs font-medium cursor-pointer select-none" onClick={() => toggleSort("office_name")}>
-                      <span className="flex items-center">Office <SortIcon field="office_name" /></span>
+                    <TableHead className="text-xs font-medium cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("office_name")}>
+                      <span className="flex items-center">Office {!aiLeadsMode && <SortIcon field="office_name" />}</span>
                     </TableHead>
                     <TableHead className="text-xs font-medium">City</TableHead>
-                    <TableHead className="text-xs font-medium w-16 cursor-pointer select-none" onClick={() => toggleSort("state")}>
-                      <span className="flex items-center">State <SortIcon field="state" /></span>
+                    <TableHead className="text-xs font-medium w-16 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("state")}>
+                      <span className="flex items-center">State {!aiLeadsMode && <SortIcon field="state" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium w-16 cursor-pointer select-none" onClick={() => toggleSort("recently_sold_count")}>
-                      <span className="flex items-center">Sold <SortIcon field="recently_sold_count" /></span>
+                    <TableHead className="text-xs font-medium w-16 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("recently_sold_count")}>
+                      <span className="flex items-center">Sold {!aiLeadsMode && <SortIcon field="recently_sold_count" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium w-20 cursor-pointer select-none" onClick={() => toggleSort("average_price")}>
-                      <span className="flex items-center">Avg $ <SortIcon field="average_price" /></span>
+                    <TableHead className="text-xs font-medium w-20 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("average_price")}>
+                      <span className="flex items-center">Avg $ {!aiLeadsMode && <SortIcon field="average_price" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium w-12 cursor-pointer select-none" onClick={() => toggleSort("experience_years")}>
-                      <span className="flex items-center">Exp <SortIcon field="experience_years" /></span>
+                    <TableHead className="text-xs font-medium w-12 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("experience_years")}>
+                      <span className="flex items-center">Exp {!aiLeadsMode && <SortIcon field="experience_years" />}</span>
                     </TableHead>
                     <TableHead className="text-xs font-medium w-40">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data?.brokers.map((broker) => (
-                    <TableRow
-                      key={broker.id}
-                      className="cursor-pointer hover:bg-muted/30 transition-colors"
-                      onClick={() => setSelectedBrokerId(broker.id)}
-                      data-testid={`row-broker-${broker.id}`}
-                    >
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Checkbox
-                          checked={selectedIds.has(broker.id)}
-                          onCheckedChange={() => toggleSelect(broker.id)}
-                          data-testid={`checkbox-broker-${broker.id}`}
-                        />
-                      </TableCell>
-                      <TableCell className="text-sm font-medium max-w-[160px]">
-                        <div className="flex items-center gap-1 truncate">
-                          {broker.linkedin_url && <Linkedin className="w-3 h-3 text-[#0077b5] shrink-0" />}
-                          <span className="truncate">{broker.full_name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{broker.email || "\u2014"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{broker.phone || "\u2014"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[140px] truncate">{broker.office_name || "\u2014"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{broker.city || "\u2014"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{broker.state || "\u2014"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.recently_sold_count || "\u2014"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.average_price || "\u2014"}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.experience_years ? `${broker.experience_years}y` : "\u2014"}</TableCell>
-                      <TableCell onClick={(e) => e.stopPropagation()}>
-                        <Select
-                          value={broker.outreach_status || "not_contacted"}
-                          onValueChange={(v) => statusMutation.mutate({ id: broker.id, status: v as OutreachStatus })}
-                        >
-                          <SelectTrigger className="h-7 text-xs border-0 bg-transparent w-36 p-1" data-testid={`select-status-${broker.id}`}>
-                            <Badge className={`text-[10px] px-1.5 py-0 pointer-events-none border-0 ${STATUS_BADGE_VARIANT[broker.outreach_status || "not_contacted"]}`}>
-                              {STATUS_LABELS[broker.outreach_status || "not_contacted"]}
-                            </Badge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {outreachStatusEnum.map((s) => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {data?.brokers.length === 0 && (
+                  {(aiLeadsMode ? aiLeadsData?.brokers : data?.brokers)?.map((broker) => {
+                    const score = aiLeadsMode && "lead_score" in broker ? (broker as any).lead_score as number : null;
+                    return (
+                      <TableRow
+                        key={broker.id}
+                        className="cursor-pointer hover:bg-muted/30 transition-colors"
+                        onClick={() => setSelectedBrokerId(broker.id)}
+                        data-testid={`row-broker-${broker.id}`}
+                      >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedIds.has(broker.id)}
+                            onCheckedChange={() => toggleSelect(broker.id)}
+                            data-testid={`checkbox-broker-${broker.id}`}
+                          />
+                        </TableCell>
+                        {aiLeadsMode && (
+                          <TableCell className="text-sm tabular-nums">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${
+                                    (score ?? 0) >= 90 ? "bg-green-500" :
+                                    (score ?? 0) >= 70 ? "bg-blue-500" :
+                                    (score ?? 0) >= 50 ? "bg-violet-500" :
+                                    "bg-muted-foreground"
+                                  }`}
+                                  style={{ width: `${Math.min(100, ((score ?? 0) / 118) * 100)}%` }}
+                                />
+                              </div>
+                              <span className={`text-xs font-semibold ${
+                                (score ?? 0) >= 90 ? "text-green-600" :
+                                (score ?? 0) >= 70 ? "text-blue-600" :
+                                (score ?? 0) >= 50 ? "text-violet-600" :
+                                "text-muted-foreground"
+                              }`}>{score}</span>
+                            </div>
+                          </TableCell>
+                        )}
+                        <TableCell className="text-sm font-medium max-w-[160px]">
+                          <div className="flex items-center gap-1 truncate">
+                            {broker.linkedin_url && <Linkedin className="w-3 h-3 text-[#0077b5] shrink-0" />}
+                            <span className="truncate">{broker.full_name}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{broker.email || "\u2014"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{broker.phone || "\u2014"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground max-w-[140px] truncate">{broker.office_name || "\u2014"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{broker.city || "\u2014"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{broker.state || "\u2014"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.recently_sold_count || "\u2014"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.average_price || "\u2014"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.experience_years ? `${broker.experience_years}y` : "\u2014"}</TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Select
+                            value={broker.outreach_status || "not_contacted"}
+                            onValueChange={(v) => statusMutation.mutate({ id: broker.id, status: v as OutreachStatus })}
+                          >
+                            <SelectTrigger className="h-7 text-xs border-0 bg-transparent w-36 p-1" data-testid={`select-status-${broker.id}`}>
+                              <Badge className={`text-[10px] px-1.5 py-0 pointer-events-none border-0 ${STATUS_BADGE_VARIANT[broker.outreach_status || "not_contacted"]}`}>
+                                {STATUS_LABELS[broker.outreach_status || "not_contacted"]}
+                              </Badge>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {outreachStatusEnum.map((s) => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {((aiLeadsMode ? aiLeadsData?.brokers : data?.brokers)?.length ?? 0) === 0 && (
                     <TableRow>
-                      <TableCell colSpan={11} className="h-32 text-center text-muted-foreground">
-                        No brokers found. Try adjusting your filters.
+                      <TableCell colSpan={aiLeadsMode ? 12 : 11} className="h-32 text-center text-muted-foreground">
+                        {aiLeadsMode ? "No matching leads found." : "No brokers found. Try adjusting your filters."}
                       </TableCell>
                     </TableRow>
                   )}
@@ -995,7 +1107,7 @@ export default function Brokers() {
           )}
         </div>
 
-        {data && data.totalPages > 1 && (
+        {!aiLeadsMode && data && data.totalPages > 1 && (
           <div className="px-4 py-3 border-t flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
               Showing {(data.page - 1) * 50 + 1}\u2013{Math.min(data.page * 50, data.total)} of {data.total.toLocaleString()}
@@ -1009,6 +1121,18 @@ export default function Brokers() {
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
+          </div>
+        )}
+
+        {aiLeadsMode && aiLeadsData && (
+          <div className="px-4 py-3 border-t flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">
+              Showing top {aiLeadsData.brokers.length} of {aiLeadsData.total.toLocaleString()} eligible candidates
+            </span>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={exitAiLeadsMode}>
+              <X className="w-3.5 h-3.5" />
+              Back to all brokers
+            </Button>
           </div>
         )}
       </div>

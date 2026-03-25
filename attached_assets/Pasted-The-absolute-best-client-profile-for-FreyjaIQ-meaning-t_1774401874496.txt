@@ -1,0 +1,51 @@
+The absolute best client profile for FreyjaIQ — meaning the broker most likely to pay for the platform and keep paying — is what I'd call the "Mid-Market Solo Producer" or "Rising Team Lead." Here's the profile broken down using the filters you now have:
+
+The Ideal FreyjaIQ Client (Filterable)
+Filter settings to find them:
+
+Recently Sold Count: 50–300 (active enough to need tools, not so big they already have CoStar/Reonomy enterprise deals)
+
+Average Price: $250K–$1M (mid-market sweet spot — high enough revenue to afford SaaS tools, not institutional-level where they already have data teams)
+
+Experience Years: 5–15 (past the survival phase, actively scaling, hungry for an edge)
+
+Property Types: House, Condo, Commercial (versatile producers working multiple segments)
+
+Has Email: true
+
+Has Phone: true
+
+Has LinkedIn: true (digitally active = more likely to adopt SaaS tools)
+
+Why This Profile Is The Best
+1. They have budget but not enterprise contracts. Brokers doing 50-300 deals at $250K-$1M average are making roughly $150K-$750K+ in annual GCI. They can easily afford a $99-$299/mo tool, but they're not big enough for a $25K/year CoStar seat or a dedicated research analyst.
+​
+
+2. They're in growth mode. 5-15 years experience with solid deal flow means they're actively trying to scale — either building a team, expanding markets, or going after bigger deals. They need prospecting intelligence to level up.
+​
+
+3. They're digitally reachable. Having email + phone + LinkedIn means they're not old-school Rolodex brokers. They adopt tools. They respond to outbound. They'll trial your product.
+​
+
+4. They feel the pain most. This segment manually researches owners, tenants, and market data. They don't have a brokerage data team doing it for them, but they're doing enough volume that manual research is a bottleneck. FreyjaIQ solves their exact pain.
+​
+
+5. They have the highest LTV potential. As they grow (and FreyjaIQ helps them grow), they upgrade, add team seats, and become advocates. The 50-deal broker today becomes the 200-deal team lead in 2 years.
+​
+
+Secondary Tier Profiles Worth Filtering
+Profile	Filter	Why
+New & Ambitious	25-75 deals, 2-5 yrs exp, has email+phone+LinkedIn	Early adopters, price-sensitive but loyal if tool works
+Commercial Crossover	Commercial specialty, 20+ deals, $500K+ avg	Higher deal values = higher willingness to pay for data
+Geographic Expanders	100+ deals, multiple cities/states	Need market intelligence in new areas they don't know yet
+Independent Agents	High deal count but NOT from major brokerages (filter out Keller Williams, RE/MAX, Coldwell Banker)	No corporate tools provided, must buy their own stack
+The Anti-Profile (Who to Deprioritize)
+<10 deals, <2 years experience — can't afford tools, high churn risk
+
+500+ deals, major brokerage — already has CoStar, Reonomy, or internal data teams
+
+No email, no phone, no LinkedIn — unreachable, low digital adoption
+
+$0 or blank average price — likely incomplete/stale data
+
+The "Mid-Market Solo Producer" preset would be the single highest-converting outbound segment for FreyjaIQ sales. You could even build that as a 7th built-in preset on the dashboard — call it "Ideal FreyjaIQ Prospect" and have it be the default view when users first land on the brokers page.

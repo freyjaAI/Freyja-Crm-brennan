@@ -79,6 +79,7 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - Backend: `buildProspectingConditions()` in storage.ts handles safe SQL parsing of text-formatted numeric fields (commas, $ signs, K/M suffixes, "X years" format)
   - API: `GET /api/filter-options` returns available states, specialties, source types
   - **Filter presets**: 6 built-in presets (Top Producers, High-Value Brokers, Active Residential, Commercial Specialists, New & Hungry, Land & Development) displayed as scrollable pill buttons; custom presets saved/deleted via `filter_presets` table (id, user_id, name, filters JSONB, created_at); API: `GET/POST /api/filter-presets`, `DELETE /api/filter-presets/:id`; active preset auto-clears when any manual filter changes
+  - **AI Leads**: `GET /api/ai-leads?limit=100` — CTE-based SQL scoring algorithm that ranks uncontacted brokers by ideal FreyjaIQ client profile: deals (50-300, +30pts), avg price ($250K-$1M, +25pts), experience (5-15yrs, +20pts), has email (+10pts), has phone (+8pts), has LinkedIn (+10pts), specialties House/Condo/Commercial (+5pts each). Max score 118. Candidates pre-filtered to status=not_contacted, email present, 10+ deals. UI: purple gradient "Find Best 100 Leads" button, switches to AI Leads mode with score column (color-coded progress bars), info banner with scoring criteria, exit button to return to normal view. Index on `outreach_status` for performance.
 
 ### `artifacts/api-server` (`@workspace/api-server`)
 
