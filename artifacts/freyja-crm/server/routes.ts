@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, db, pool } from "./storage";
-import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers, insertOutreachSequenceSchema, updateOutreachSequenceSchema, insertOutreachSequenceStepSchema, insertOutreachEnrollmentSchema, outreachSuppressions, outreachEnrollments } from "@shared/schema";
+import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers, insertOutreachSequenceSchema, updateOutreachSequenceSchema, insertOutreachSequenceStepSchema, insertOutreachEnrollmentSchema, outreachSuppressions, outreachEnrollments, emailMessages, outreachEvents } from "@shared/schema";
 import type { Broker } from "@shared/schema";
 import { requireAuth } from "./auth";
 import fs from "fs";
@@ -9,6 +9,7 @@ import Papa from "papaparse";
 import { eq, isNull, or, and, like, sql } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import * as outreachService from "./outreach-service";
+import { getEmailService, validateResendEnv } from "./email-service";
 
 const genai = new GoogleGenAI({
   apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY || "dummy",
@@ -204,6 +205,83 @@ export async function registerRoutes(
         client.release();
       }
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/webhooks/resend", async (req, res) => {
+    try {
+      const event = req.body;
+      if (!event || !event.type) {
+        return res.status(400).json({ error: "Invalid webhook payload" });
+      }
+
+      const eventType: string = event.type;
+      const data = event.data || {};
+      const resendEmailId: string | undefined = data.email_id;
+      const recipientEmail: string | undefined = Array.isArray(data.to) ? data.to[0] : data.to;
+
+      console.log(`[Resend Webhook] type=${eventType} email_id=${resendEmailId} to=${recipientEmail}`);
+
+      if (eventType === "email.bounced") {
+        const isSoft = data.bounce?.type === "soft" || data.bounce_type === "soft";
+        await outreachService.processBounceWebhook({
+          providerMessageId: resendEmailId,
+          email: recipientEmail,
+          bounceType: isSoft ? "soft" : "hard",
+        });
+      } else if (eventType === "email.complained") {
+        if (recipientEmail) {
+          await outreachService.processUnsubscribe({ email: recipientEmail });
+        } else if (resendEmailId) {
+          const msgRows = await db.select().from(emailMessages).where(eq(emailMessages.provider_message_id, resendEmailId)).limit(1);
+          if (msgRows.length > 0) {
+            const brokerRows = await db.select().from(brokers).where(eq(brokers.id, msgRows[0].entity_id)).limit(1);
+            if (brokerRows[0]?.email) {
+              await outreachService.processUnsubscribe({ email: brokerRows[0].email, entityId: brokerRows[0].id });
+            }
+          }
+        }
+      } else if (eventType === "email.delivered") {
+        if (resendEmailId) {
+          await db.update(emailMessages).set({ send_status: "sent" })
+            .where(and(eq(emailMessages.provider_message_id, resendEmailId), eq(emailMessages.send_status, "sending")));
+        }
+      } else if (eventType === "email.opened") {
+        if (resendEmailId) {
+          const msgRows = await db.select().from(emailMessages).where(eq(emailMessages.provider_message_id, resendEmailId)).limit(1);
+          if (msgRows.length > 0) {
+            await db.insert(outreachEvents).values({
+              entity_id: msgRows[0].entity_id,
+              entity_type: "broker",
+              channel: "email",
+              event_type: "email_opened",
+              metadata_json: { provider_message_id: resendEmailId },
+              created_by: "system",
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      } else if (eventType === "email.clicked") {
+        if (resendEmailId) {
+          const msgRows = await db.select().from(emailMessages).where(eq(emailMessages.provider_message_id, resendEmailId)).limit(1);
+          if (msgRows.length > 0) {
+            await db.insert(outreachEvents).values({
+              entity_id: msgRows[0].entity_id,
+              entity_type: "broker",
+              channel: "email",
+              event_type: "email_clicked",
+              metadata_json: { provider_message_id: resendEmailId, url: data.click?.url },
+              created_by: "system",
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      }
+
+      res.json({ received: true });
+    } catch (err: any) {
+      console.error("[Resend Webhook] Error:", err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -1002,6 +1080,88 @@ export async function registerRoutes(
         ))
         .orderBy(sql`created_at DESC`);
       res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/email-provider-status", requireAuth, async (_req, res) => {
+    const svc = getEmailService();
+    const envCheck = validateResendEnv();
+    res.json({
+      activeProvider: svc.name(),
+      resendConfigured: envCheck.valid,
+      missingEnvVars: envCheck.missing,
+    });
+  });
+
+  app.post("/api/outreach/test-send", requireAuth, async (req, res) => {
+    try {
+      const { brokerId, subject, bodyHtml } = req.body;
+      if (!brokerId) return res.status(400).json({ error: "brokerId is required" });
+
+      const brokerRows = await db.select().from(brokers).where(eq(brokers.id, Number(brokerId))).limit(1);
+      if (brokerRows.length === 0) return res.status(404).json({ error: "Broker not found" });
+      const broker = brokerRows[0];
+      if (!broker.email) return res.status(400).json({ error: "Broker has no email address" });
+
+      const suppressed = await outreachService.isEmailSuppressed(broker.email);
+      if (suppressed) return res.status(400).json({ error: "Email is suppressed" });
+
+      const resolvedSubject = outreachService.renderEmailTemplate(subject || "Test from Freyja IQ", broker);
+      const resolvedBody = outreachService.renderEmailTemplate(
+        bodyHtml || `<p>Hi {{first_name}},</p><p>This is a test email from Freyja IQ.</p>`,
+        broker,
+      );
+
+      const emailService = getEmailService();
+      const envCheck = validateResendEnv();
+      const fromAddr = envCheck.config
+        ? (envCheck.config.fromName ? `${envCheck.config.fromName} <${envCheck.config.fromEmail}>` : envCheck.config.fromEmail)
+        : "noreply@freyja.biz";
+
+      const result = await emailService.send({
+        from: fromAddr,
+        to: broker.email,
+        subject: resolvedSubject,
+        bodyHtml: resolvedBody,
+        replyTo: envCheck.config?.replyTo,
+      });
+
+      const now = new Date().toISOString();
+      await db.insert(emailMessages).values({
+        enrollment_id: null,
+        entity_id: broker.id,
+        inbox_id: null,
+        subject: resolvedSubject,
+        body_rendered: resolvedBody,
+        send_status: result.success ? "sent" : "failed",
+        sent_at: result.success ? now : null,
+        provider_message_id: result.providerMessageId ?? null,
+        created_at: now,
+      });
+
+      await db.insert(outreachEvents).values({
+        entity_id: broker.id,
+        entity_type: "broker",
+        channel: "email",
+        event_type: result.success ? "email_sent" : "email_failed",
+        metadata_json: {
+          test_send: true,
+          subject: resolvedSubject,
+          provider: emailService.name(),
+          provider_message_id: result.providerMessageId,
+          error: result.error,
+        },
+        created_by: "admin",
+        created_at: now,
+      });
+
+      if (result.success) {
+        res.json({ success: true, providerMessageId: result.providerMessageId, provider: emailService.name(), to: broker.email });
+      } else {
+        res.status(502).json({ success: false, error: result.error, provider: emailService.name() });
+      }
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

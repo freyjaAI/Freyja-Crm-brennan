@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { registerAuthRoutes } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { initResendEmailService, getEmailService } from "./email-service";
 
 const app = express();
 const httpServer = createServer(app);
@@ -74,6 +75,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  initResendEmailService();
+  console.log(`[Startup] Active email provider: ${getEmailService().name()}`);
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

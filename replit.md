@@ -102,8 +102,17 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - Zod validation schemas for insert/update on all entities
   - Reuses existing `brokers` table via entity_id/entity_type polymorphic references
   - Drizzle config updated from SQLite to PostgreSQL dialect
+- **Resend email integration** (live):
+  - `ResendEmailService` class in `server/email-service.ts` — uses `resend` npm package
+  - Auto-initialized at startup via `initResendEmailService()` in `server/index.ts`
+  - Env vars: `RESEND_API_KEY` (required), `RESEND_FROM_EMAIL` (required), `RESEND_FROM_NAME` (optional), `RESEND_REPLY_TO` (optional)
+  - Falls back gracefully to `ConsoleEmailService` if env vars are missing
+  - `GET /api/outreach/email-provider-status` — returns active provider name + config status
+  - `POST /api/outreach/test-send` — send a single test email to a broker (no enrollment required), records in email_messages + outreach_events
+  - `POST /api/outreach/webhooks/resend` — Resend webhook handler (NO auth, placed before requireAuth middleware); handles: `email.bounced` (soft/hard distinction), `email.complained` (→unsubscribe+suppress), `email.delivered` (→mark sent), `email.opened` (→event log), `email.clicked` (→event log with URL)
+  - `resend` added to esbuild allowlist in `script/build.ts`
 - **Email outreach backend services** (`server/outreach-service.ts`, `server/email-service.ts`):
-  - `IEmailService` interface with `ConsoleEmailService` (dev logging) and `SmtpEmailService` (stub) — pluggable for Resend/SendGrid/SMTP
+  - `IEmailService` interface with `ConsoleEmailService` (dev fallback) and `ResendEmailService` (live) — pluggable provider abstraction
   - `enrollEntityInSequence()` — validates sequence, entity email, suppression, duplicate enrollment
   - `getDueSequenceSteps()` — finds due enrollments with inbox daily limit throttling
   - `sendDueEmails()` — processes due steps, renders templates, sends via email service, advances enrollment
