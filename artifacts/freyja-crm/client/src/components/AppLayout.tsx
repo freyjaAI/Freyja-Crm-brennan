@@ -10,6 +10,9 @@ import {
   Moon,
   MessageSquare,
   FileText,
+  Zap,
+  Inbox,
+  ShieldBan,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,7 +49,10 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/brokers", label: "Brokers", icon: Users, showCount: true },
   { href: "/outreach", label: "Outreach", icon: MessageSquare },
+  { href: "/sequences", label: "Sequences", icon: Zap },
   { href: "/templates", label: "Templates", icon: FileText },
+  { href: "/inbox-health", label: "Inbox Health", icon: Inbox },
+  { href: "/suppressions", label: "Suppressions", icon: ShieldBan },
   { href: "/import", label: "Import Data", icon: Upload },
 ];
 

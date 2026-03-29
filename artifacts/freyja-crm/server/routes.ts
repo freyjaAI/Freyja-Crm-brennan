@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, db, pool } from "./storage";
-import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers, insertOutreachSequenceSchema, updateOutreachSequenceSchema, insertOutreachSequenceStepSchema, insertOutreachEnrollmentSchema } from "@shared/schema";
+import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers, insertOutreachSequenceSchema, updateOutreachSequenceSchema, insertOutreachSequenceStepSchema, insertOutreachEnrollmentSchema, outreachSuppressions, outreachEnrollments } from "@shared/schema";
 import type { Broker } from "@shared/schema";
 import { requireAuth } from "./auth";
 import fs from "fs";
@@ -977,6 +977,31 @@ export async function registerRoutes(
     try {
       const health = await outreachService.getInboxHealth();
       res.json(health);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/suppressions", async (_req, res) => {
+    try {
+      const rows = await db.select().from(outreachSuppressions).orderBy(sql`created_at DESC`).limit(500);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/enrollments/:entityType/:entityId", async (req, res) => {
+    try {
+      const entityId = parseInt(req.params.entityId);
+      if (isNaN(entityId)) return res.status(400).json({ error: "Invalid entityId" });
+      const rows = await db.select().from(outreachEnrollments)
+        .where(and(
+          eq(outreachEnrollments.entity_id, entityId),
+          eq(outreachEnrollments.entity_type, req.params.entityType),
+        ))
+        .orderBy(sql`created_at DESC`);
+      res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

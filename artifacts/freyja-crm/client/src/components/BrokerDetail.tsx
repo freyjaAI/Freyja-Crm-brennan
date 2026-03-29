@@ -2,8 +2,10 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Broker, OutreachStatus, OutreachLog, MessageTemplate, OutreachLogStatus } from "@shared/schema";
+import type { Broker, OutreachStatus, OutreachLog, MessageTemplate, OutreachLogStatus, OutreachEnrollment } from "@shared/schema";
 import { outreachStatusEnum, outreachLogStatusEnum } from "@shared/schema";
+import { EnrollModal } from "./EnrollModal";
+import { OutreachTimeline } from "./OutreachTimeline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,6 +43,7 @@ import {
   Clock,
   ChevronDown,
   ChevronUp,
+  Zap,
 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -110,6 +113,17 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
       const res = await apiRequest("GET", "/api/message-templates");
       return res.json();
     },
+  });
+
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+
+  const { data: enrollments = [] } = useQuery<OutreachEnrollment[]>({
+    queryKey: ["/api/outreach/enrollments", "broker", String(brokerId)],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/outreach/enrollments/broker/${brokerId}`);
+      return res.json();
+    },
+    enabled: !!brokerId,
   });
 
   const [status, setStatus] = useState<OutreachStatus>("not_contacted");
@@ -718,6 +732,63 @@ export function BrokerDetail({ brokerId, onClose }: BrokerDetailProps) {
             </div>
           </>
         )}
+
+        <Separator />
+
+        {/* ─── Sequence Enrollment ──────────────────────────────────────────── */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Zap className="w-3.5 h-3.5" />
+              Email Sequences
+            </h3>
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 px-2.5" onClick={() => setShowEnrollModal(true)}>
+              <Zap className="w-3 h-3" /> Enroll
+            </Button>
+          </div>
+
+          {enrollments.length > 0 ? (
+            <div className="space-y-1.5">
+              {enrollments.map(en => {
+                const statusBadge: Record<string, string> = {
+                  active: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+                  paused: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+                  completed: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+                  replied: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+                  bounced: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                  unsubscribed: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+                  failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                };
+                return (
+                  <div key={en.id} className="flex items-center justify-between p-2 rounded-md bg-muted/30 border border-border/40">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Badge className={`text-[9px] px-1.5 py-0 border-0 h-4 ${statusBadge[en.status] || "bg-muted text-muted-foreground"}`}>
+                        {en.status}
+                      </Badge>
+                      <span className="text-[11px] text-muted-foreground">Step {en.current_step}</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground">
+                      {en.created_at ? new Date(en.created_at).toLocaleDateString() : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">Not enrolled in any sequence</p>
+          )}
+        </div>
+
+        {/* ─── Sequence Timeline ───────────────────────────────────────────── */}
+        <OutreachTimeline entityId={brokerId} entityType="broker" />
+
+        <EnrollModal
+          open={showEnrollModal}
+          onClose={() => setShowEnrollModal(false)}
+          entityId={brokerId}
+          entityType="broker"
+          entityName={broker.full_name}
+        />
 
         <Separator />
 

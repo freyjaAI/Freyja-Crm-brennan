@@ -80,7 +80,16 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - API: `GET /api/filter-options` returns available states, specialties, source types
   - **Filter presets**: 6 built-in presets (Top Producers, High-Value Brokers, Active Residential, Commercial Specialists, New & Hungry, Land & Development) displayed as scrollable pill buttons; custom presets saved/deleted via `filter_presets` table (id, user_id, name, filters JSONB, created_at); API: `GET/POST /api/filter-presets`, `DELETE /api/filter-presets/:id`; active preset auto-clears when any manual filter changes
   - **AI Leads**: `GET /api/ai-leads?limit=100` — CTE-based SQL scoring algorithm that ranks uncontacted brokers by ideal FreyjaIQ client profile: deals (50-300, +30pts), avg price ($250K-$1M, +25pts), experience (5-15yrs, +20pts), has email (+10pts), has phone (+8pts), has LinkedIn (+10pts), specialties House/Condo/Commercial (+5pts each). Max score 118. Candidates pre-filtered to status=not_contacted, email present, 10+ deals. UI: purple gradient "Find Best 100 Leads" button, switches to AI Leads mode with score column (color-coded progress bars), info banner with scoring criteria, exit button to return to normal view. Index on `outreach_status` for performance.
-- **Email outreach data model** (7 new tables, no UI yet):
+- **Email outreach frontend pages**:
+  - **Sequences** (`/sequences`): List/create outreach sequences with inline step builder (subject, body, delay, channel, stop-on-reply)
+  - **Inbox Health** (`/inbox-health`): Dashboard showing sender inbox utilization bars, warmup status, daily limits
+  - **Suppressions** (`/suppressions`): Suppression list viewer + manual email suppression form
+  - **BrokerDetail integration**: "Email Sequences" section showing enrollment status badges + Enroll button → EnrollModal; OutreachTimeline component showing chronological events
+  - Nav items: Sequences, Inbox Health, Suppressions added to sidebar
+- **Email outreach API routes (additional)**:
+  - `GET /api/outreach/suppressions` — list suppressions (newest first, limit 500)
+  - `GET /api/outreach/enrollments/:entityType/:entityId` — list enrollments for an entity
+- **Email outreach data model** (7 tables):
   - `sender_inboxes`: sending accounts with provider, warmup status, daily limits
   - `outreach_sequences`: named multi-step outreach sequences (email/linkedin/multi channel)
   - `outreach_sequence_steps`: step definitions with subject/body templates, delay, stop-on-reply
