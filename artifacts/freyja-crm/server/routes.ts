@@ -1,13 +1,14 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, db, pool } from "./storage";
-import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers } from "@shared/schema";
+import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers, insertOutreachSequenceSchema, updateOutreachSequenceSchema, insertOutreachSequenceStepSchema, insertOutreachEnrollmentSchema } from "@shared/schema";
 import type { Broker } from "@shared/schema";
 import { requireAuth } from "./auth";
 import fs from "fs";
 import Papa from "papaparse";
 import { eq, isNull, or, and, like, sql } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
+import * as outreachService from "./outreach-service";
 
 const genai = new GoogleGenAI({
   apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY || "dummy",
@@ -846,6 +847,136 @@ export async function registerRoutes(
       if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
       await storage.deleteMessageTemplate(id);
       res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Outreach Sequences & Automation ─────────────────────────────────────
+
+  app.get("/api/outreach/sequences", async (_req, res) => {
+    try {
+      const sequences = await outreachService.listSequences();
+      const withSteps = await Promise.all(sequences.map(async (seq) => {
+        const steps = await outreachService.getSequenceSteps(seq.id);
+        return { ...seq, steps };
+      }));
+      res.json(withSteps);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/sequences", async (req, res) => {
+    try {
+      const parsed = insertOutreachSequenceSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+      const sequence = await outreachService.createSequence(parsed.data);
+
+      if (Array.isArray(req.body.steps)) {
+        for (const stepData of req.body.steps) {
+          const stepParsed = insertOutreachSequenceStepSchema.safeParse({ ...stepData, sequence_id: sequence.id });
+          if (stepParsed.success) {
+            await outreachService.createSequenceStep(stepParsed.data);
+          }
+        }
+      }
+
+      const steps = await outreachService.getSequenceSteps(sequence.id);
+      res.status(201).json({ ...sequence, steps });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/enroll", async (req, res) => {
+    try {
+      const { sequenceId, entityId, entityType, inboxId } = req.body;
+      if (!sequenceId || !entityId) return res.status(400).json({ error: "sequenceId and entityId are required" });
+
+      const result = await outreachService.enrollEntityInSequence(
+        Number(sequenceId),
+        Number(entityId),
+        entityType || "broker",
+        inboxId ? Number(inboxId) : undefined,
+      );
+
+      if (result.error) return res.status(400).json({ error: result.error });
+      res.status(201).json(result.enrollment);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/send-due", async (_req, res) => {
+    try {
+      const result = await outreachService.sendDueEmails();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/unsubscribe", async (req, res) => {
+    try {
+      const { entityId, email } = req.body;
+      if (!entityId && !email) return res.status(400).json({ error: "entityId or email required" });
+
+      const result = await outreachService.processUnsubscribe({
+        entityId: entityId ? Number(entityId) : undefined,
+        email: email || undefined,
+      });
+
+      if (result.error) return res.status(400).json({ error: result.error });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/webhooks/reply", async (req, res) => {
+    try {
+      const result = await outreachService.processReplyWebhook(req.body);
+      if (result.error) return res.status(404).json({ error: result.error });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/webhooks/bounce", async (req, res) => {
+    try {
+      const { providerMessageId, email, bounceType } = req.body;
+      if (!bounceType) return res.status(400).json({ error: "bounceType required (soft or hard)" });
+
+      const result = await outreachService.processBounceWebhook({
+        providerMessageId,
+        email,
+        bounceType,
+      });
+
+      if (result.error) return res.status(404).json({ error: result.error });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/timeline/:entityType/:entityId", async (req, res) => {
+    try {
+      const entityId = parseInt(req.params.entityId);
+      if (isNaN(entityId)) return res.status(400).json({ error: "Invalid entityId" });
+      const events = await outreachService.getEntityTimeline(entityId, req.params.entityType);
+      res.json(events);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/inbox-health", async (_req, res) => {
+    try {
+      const health = await outreachService.getInboxHealth();
+      res.json(health);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

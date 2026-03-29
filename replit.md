@@ -89,9 +89,34 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - `email_messages`: individual email records with send status, reply/bounce tracking
   - `outreach_suppressions`: email suppression list (bounces, unsubscribes, spam complaints)
   - All tables have appropriate indexes (sequence_id, entity_id/entity_type, next_send_at, status, email)
+  - Unique constraints: sender_inboxes.email_address, sequence_steps.(sequence_id, step_number), suppressions.email
   - Zod validation schemas for insert/update on all entities
   - Reuses existing `brokers` table via entity_id/entity_type polymorphic references
   - Drizzle config updated from SQLite to PostgreSQL dialect
+- **Email outreach backend services** (`server/outreach-service.ts`, `server/email-service.ts`):
+  - `IEmailService` interface with `ConsoleEmailService` (dev logging) and `SmtpEmailService` (stub) — pluggable for Resend/SendGrid/SMTP
+  - `enrollEntityInSequence()` — validates sequence, entity email, suppression, duplicate enrollment
+  - `getDueSequenceSteps()` — finds due enrollments with inbox daily limit throttling
+  - `sendDueEmails()` — processes due steps, renders templates, sends via email service, advances enrollment
+  - `renderEmailTemplate()` — placeholder substitution (broker_name, first_name, company_name, city, etc.) with safe fallbacks
+  - `stopEnrollment()` — transitions to terminal status (replied/bounced/unsubscribed/completed/failed)
+  - `suppressEmail()` — idempotent suppression + cascading enrollment stops
+  - `processReplyWebhook()` — respects per-step `stop_on_reply` config
+  - `processBounceWebhook()` — stops enrollment first (→bounced), then suppresses (→no status conflict)
+  - `processUnsubscribe()` — resolves email from entityId, suppresses, logs event
+  - `getEntityTimeline()` — chronological outreach events for an entity
+  - `getInboxHealth()` — daily utilization metrics per inbox
+- **Email outreach API routes** (all behind requireAuth):
+  - `GET /api/outreach/sequences` — list sequences with steps
+  - `POST /api/outreach/sequences` — create sequence with inline steps
+  - `POST /api/outreach/enroll` — enroll entity in sequence
+  - `POST /api/outreach/send-due` — trigger processing of due emails
+  - `POST /api/outreach/unsubscribe` — unsubscribe entity/email
+  - `POST /api/outreach/webhooks/reply` — process reply webhook
+  - `POST /api/outreach/webhooks/bounce` — process bounce webhook
+  - `GET /api/outreach/timeline/:entityType/:entityId` — entity timeline
+  - `GET /api/outreach/inbox-health` — inbox health/utilization
+- **Outreach tests** (`server/outreach-service.test.ts`): 27 tests covering enrollment, suppression, template rendering, send flow, daily limits, stop rules, unsubscribe, idempotency, timeline
 
 ### `artifacts/api-server` (`@workspace/api-server`)
 
