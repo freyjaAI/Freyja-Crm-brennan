@@ -134,6 +134,13 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - `POST /api/outreach/webhooks/bounce` — process bounce webhook
   - `GET /api/outreach/timeline/:entityType/:entityId` — entity timeline
   - `GET /api/outreach/inbox-health` — inbox health/utilization
+- **UI/UX overhaul** (completed):
+  - **Brokers page**: Filters collapsed by default (search + state + status in one compact row), preset chips are small pills, instant typeahead search (300ms debounce, no Enter required), sortable columns, compact "1-50 of 71,886" row count, tighter data density (8px row height), horizontal scrollable table
+  - **Outreach Tracker**: Search bar for broker name/email, expandable rows showing full email body/subject, step number display, template names shown with tooltip on hover, consistent pagination
+  - **Dashboard**: "Contacted" count now pulls from outreach_log stats (not broker status), recent activity feed showing last 10 emails with delivery status, 3-column layout (chart + chart + activity)
+  - **Sequences**: Click sequence to show enrolled brokers with status/step/next send time, enrollment status badges
+  - **Server endpoints added**: `GET /api/recent-activity`, `GET /api/outreach/sequences/:id/enrollments`, search param on `GET /api/outreach-log`
+  - **Query optimization**: Outreach log uses separate queries for email content + enrollment step to avoid fan-out join pagination issues
 - **Outreach tests** (`server/outreach-service.test.ts`): 27 tests covering enrollment, suppression, template rendering, send flow, daily limits, stop rules, unsubscribe, idempotency, timeline
 - **Template subjects**: `subject TEXT` column on `message_templates`; Initial Outreach (ID=1) and Follow Up (ID=2) have live subjects
 - **Unsubscribe flow**: `GET /api/outreach/unsubscribe?email=...&token=...` — public endpoint (before requireAuth), HMAC-SHA256 token verification, adds to suppression list, returns HTML confirmation page; all outbound emails include unsubscribe footer via `appendUnsubscribeFooter()`

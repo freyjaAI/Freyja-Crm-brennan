@@ -826,7 +826,8 @@ export async function registerRoutes(
       const dateTo = (req.query.dateTo as string) || undefined;
       const overdue = req.query.overdue === "true" ? true : false;
 
-      const result = await storage.getAllOutreachLog({ page, limit, status, outreach_type, dateFrom, dateTo, overdue });
+      const search = (req.query.search as string) || undefined;
+      const result = await storage.getAllOutreachLog({ page, limit, status, outreach_type, dateFrom, dateTo, overdue, search });
       res.json({ logs: result.logs, total: result.total, page, totalPages: Math.ceil(result.total / limit) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -838,6 +839,27 @@ export async function registerRoutes(
     try {
       const stats = await storage.getOutreachStats();
       res.json(stats);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/recent-activity", async (req, res) => {
+    try {
+      const limit = Math.min(20, Math.max(1, parseInt(req.query.limit as string) || 10));
+      const activity = await storage.getRecentActivity(limit);
+      res.json(activity);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/sequences/:id/enrollments", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+      const enrollments = await storage.getSequenceEnrollments(id);
+      res.json(enrollments);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

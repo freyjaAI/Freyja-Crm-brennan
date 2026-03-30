@@ -1,0 +1,32 @@
+Major UI/UX overhaul needed across the CRM. The current interface is hard to work with. Here's what needs fixing:
+
+## 1. BROKERS PAGE (highest priority)
+- The filter panel takes up too much vertical space — collapse it by default, only show the search bar + state dropdown + status dropdown in one row. Filters expand on click.
+- The table only shows ~2 rows because filters eat all the space. Need to see at least 10-15 rows at a glance.
+- Column truncation is bad — emails and brokerage names get cut off. Make the table horizontally scrollable or use better column widths.
+- Add a quick "Name search" that does instant typeahead/autocomplete so I can find a specific broker fast without waiting for full page reload.
+- Add sortable columns — click column header to sort by name, deals closed, avg deal price, experience.
+- Show a compact row count like "1-50 of 71,886" not the unicode dash character.
+- The preset filter buttons (Top Producers, High-Value, etc) should be smaller/chips not full-width buttons.
+
+## 2. OUTREACH TRACKER PAGE
+- Add a search bar to find specific brokers by name or email.
+- The "Template Used" column shows truncated text like "AI-powered b..." — show the full template name or use a tooltip on hover.
+- Add ability to click a row to expand and see the full email that was sent.
+- Deduplicate display — if the same broker got multiple emails, group them or at least show which sequence step it was (Step 1, Step 2).
+- Add pagination — currently it seems to load all rows.
+
+## 3. DASHBOARD
+- The "Contacted" stat shows 0 but there are 27 outreach records. Fix the dashboard to pull from outreach_log data.
+- Add recent activity feed showing last 5-10 emails sent with delivery status.
+
+## 4. SEQUENCES PAGE  
+- Clicking a sequence should show enrolled brokers with their current status (sent, delivered, bounced, opened).
+- Show next scheduled send time.
+
+## 5. GENERAL UX
+- Increase default data density — less padding, tighter rows, more info visible without scrolling.
+- All tables should have consistent styling, sortable headers, and pagination controls.
+- Loading states should use skeleton loaders (some already do, make it consistent).
+
+Prioritize: Brokers page search/filter UX > Outreach tracker improvements > Dashboard fixes > Sequences drill-down. Deploy when done.

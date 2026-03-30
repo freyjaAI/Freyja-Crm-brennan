@@ -13,6 +13,8 @@ import {
   filterPresets,
   outreachLog,
   messageTemplates,
+  outreachEnrollments,
+  emailMessages,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
@@ -319,7 +321,8 @@ export class DatabaseStorage implements IStorage {
     dateFrom?: string;
     dateTo?: string;
     overdue?: boolean;
-  }): Promise<{ logs: (OutreachLog & { broker_name: string | null; broker_state: string | null })[], total: number }> {
+    search?: string;
+  }): Promise<{ logs: (OutreachLog & { broker_name: string | null; broker_state: string | null; broker_email: string | null; email_subject: string | null; email_body: string | null; step_number: number | null })[], total: number }> {
     const conditions: any[] = [];
     if (params.status) conditions.push(eq(outreachLog.status, params.status));
     if (params.outreach_type) conditions.push(eq(outreachLog.outreach_type, params.outreach_type));
@@ -327,13 +330,25 @@ export class DatabaseStorage implements IStorage {
     if (params.dateTo) conditions.push(sql`${outreachLog.created_at} <= ${params.dateTo}`);
     if (params.overdue) {
       const today = new Date().toISOString().split("T")[0];
-      conditions.push(sql`${outreachLog.follow_up_date} IS NOT NULL AND ${outreachLog.follow_up_date} <= ${today}`);
+      conditions.push(sql`${outreachLog.follow_up_date} IS NOT NULL AND ${outreachLog.follow_up_date} <= ${today} AND ${outreachLog.status} NOT IN ('closed', 'meeting_set')`);
+    }
+    if (params.search) {
+      const pat = `%${params.search}%`;
+      conditions.push(
+        or(
+          like(brokers.full_name, pat),
+          like(brokers.email, pat),
+        )
+      );
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
-    const [countResult, rows] = await Promise.all([
-      db.select({ value: count() }).from(outreachLog).where(whereClause),
+    const [countResult, baseRows] = await Promise.all([
+      db.select({ value: count() })
+        .from(outreachLog)
+        .leftJoin(brokers, eq(outreachLog.broker_id, brokers.id))
+        .where(whereClause),
       db.select({
         id: outreachLog.id,
         broker_id: outreachLog.broker_id,
@@ -345,6 +360,7 @@ export class DatabaseStorage implements IStorage {
         follow_up_date: outreachLog.follow_up_date,
         broker_name: brokers.full_name,
         broker_state: brokers.state,
+        broker_email: brokers.email,
       })
         .from(outreachLog)
         .leftJoin(brokers, eq(outreachLog.broker_id, brokers.id))
@@ -354,7 +370,48 @@ export class DatabaseStorage implements IStorage {
         .offset((params.page - 1) * params.limit),
     ]);
 
-    return { logs: rows as any, total: Number(countResult[0]?.value ?? 0) };
+    const brokerIds = [...new Set(baseRows.map(r => r.broker_id))];
+    let emailMap = new Map<number, { subject: string | null; body: string | null }>();
+    let stepMap = new Map<number, number>();
+
+    if (brokerIds.length > 0) {
+      const [emails, enrolls] = await Promise.all([
+        db.select({
+          entity_id: emailMessages.entity_id,
+          subject: emailMessages.subject,
+          body: emailMessages.body_rendered,
+        })
+          .from(emailMessages)
+          .where(and(
+            sql`${emailMessages.entity_id} IN (${sql.join(brokerIds.map(id => sql`${id}`), sql`, `)})`,
+            sql`${emailMessages.sent_at} IS NOT NULL`
+          ))
+          .orderBy(desc(emailMessages.sent_at)),
+        db.select({
+          entity_id: outreachEnrollments.entity_id,
+          current_step: outreachEnrollments.current_step,
+        })
+          .from(outreachEnrollments)
+          .where(sql`${outreachEnrollments.entity_id} IN (${sql.join(brokerIds.map(id => sql`${id}`), sql`, `)})`)
+          .orderBy(desc(outreachEnrollments.created_at)),
+      ]);
+
+      for (const e of emails) {
+        if (!emailMap.has(e.entity_id)) emailMap.set(e.entity_id, { subject: e.subject, body: e.body });
+      }
+      for (const e of enrolls) {
+        if (!stepMap.has(e.entity_id)) stepMap.set(e.entity_id, e.current_step);
+      }
+    }
+
+    const logs = baseRows.map(row => ({
+      ...row,
+      email_subject: emailMap.get(row.broker_id)?.subject ?? null,
+      email_body: emailMap.get(row.broker_id)?.body ?? null,
+      step_number: stepMap.get(row.broker_id) ?? null,
+    }));
+
+    return { logs: logs as any, total: Number(countResult[0]?.value ?? 0) };
   }
 
   async getOutreachStats(): Promise<{
@@ -403,6 +460,43 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOutreachLog(id: number): Promise<void> {
     await db.delete(outreachLog).where(eq(outreachLog.id, id));
+  }
+
+  async getRecentActivity(limit: number = 10): Promise<any[]> {
+    const rows = await db.select({
+      id: emailMessages.id,
+      broker_id: emailMessages.entity_id,
+      subject: emailMessages.subject,
+      send_status: emailMessages.send_status,
+      sent_at: emailMessages.sent_at,
+      bounce_type: emailMessages.bounce_type,
+      broker_name: brokers.full_name,
+    })
+      .from(emailMessages)
+      .leftJoin(brokers, eq(emailMessages.entity_id, brokers.id))
+      .orderBy(desc(emailMessages.sent_at))
+      .limit(limit);
+    return rows;
+  }
+
+  async getSequenceEnrollments(sequenceId: number): Promise<any[]> {
+    const rows = await db.select({
+      id: outreachEnrollments.id,
+      entity_id: outreachEnrollments.entity_id,
+      status: outreachEnrollments.status,
+      current_step: outreachEnrollments.current_step,
+      next_send_at: outreachEnrollments.next_send_at,
+      last_sent_at: outreachEnrollments.last_sent_at,
+      created_at: outreachEnrollments.created_at,
+      broker_name: brokers.full_name,
+      broker_email: brokers.email,
+      broker_state: brokers.state,
+    })
+      .from(outreachEnrollments)
+      .leftJoin(brokers, eq(outreachEnrollments.entity_id, brokers.id))
+      .where(eq(outreachEnrollments.sequence_id, sequenceId))
+      .orderBy(desc(outreachEnrollments.created_at));
+    return rows;
   }
 
   // Message templates

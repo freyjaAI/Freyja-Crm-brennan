@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/select";
 import {
   MessageSquare, Mail, Phone, Linkedin, ChevronLeft, ChevronRight,
-  AlertTriangle, Calendar, TrendingUp, Users, Target, Clock, ExternalLink,
+  AlertTriangle, Calendar, TrendingUp, Users, Target, Clock, Search,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -37,12 +38,19 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
-  linkedin: <Linkedin className="w-3.5 h-3.5 text-[#0077b5]" />,
-  email: <Mail className="w-3.5 h-3.5 text-muted-foreground" />,
-  phone: <Phone className="w-3.5 h-3.5 text-muted-foreground" />,
+  linkedin: <Linkedin className="w-3 h-3 text-[#0077b5]" />,
+  email: <Mail className="w-3 h-3 text-muted-foreground" />,
+  phone: <Phone className="w-3 h-3 text-muted-foreground" />,
 };
 
-type LogWithBroker = OutreachLog & { broker_name: string | null; broker_state: string | null };
+type LogWithBroker = OutreachLog & {
+  broker_name: string | null;
+  broker_state: string | null;
+  broker_email: string | null;
+  email_subject: string | null;
+  email_body: string | null;
+  step_number: number | null;
+};
 
 interface OutreachLogResponse {
   logs: LogWithBroker[];
@@ -59,6 +67,15 @@ interface OutreachStats {
   overdueFollowUps: number;
 }
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function OutreachPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -69,6 +86,10 @@ export default function OutreachPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showOverdue, setShowOverdue] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
+
+  const debouncedSearch = useDebounce(searchInput, 300);
 
   const buildParams = () => {
     const p = new URLSearchParams({ page: String(page), limit: "50" });
@@ -77,11 +98,12 @@ export default function OutreachPage() {
     if (dateFrom) p.set("dateFrom", dateFrom);
     if (dateTo) p.set("dateTo", dateTo);
     if (showOverdue) p.set("overdue", "true");
+    if (debouncedSearch) p.set("search", debouncedSearch);
     return p.toString();
   };
 
   const { data, isLoading } = useQuery<OutreachLogResponse>({
-    queryKey: ["/api/outreach-log", { page, statusFilter, typeFilter, dateFrom, dateTo, showOverdue }],
+    queryKey: ["/api/outreach-log", { page, statusFilter, typeFilter, dateFrom, dateTo, showOverdue, search: debouncedSearch }],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/outreach-log?${buildParams()}`);
       return res.json();
@@ -134,49 +156,64 @@ export default function OutreachPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="p-4 pb-0 space-y-4">
+      <div className="px-3 pt-2 pb-0 space-y-2">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold">Outreach Tracker</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-lg font-semibold">Outreach Tracker</h1>
+            {data && (
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {data.total.toLocaleString()} records
+              </span>
+            )}
+          </div>
           <Button
             variant="outline"
             size="sm"
+            className={`h-7 text-xs ${showOverdue ? "border-orange-400 text-orange-600 bg-orange-50 dark:bg-orange-950/20" : ""}`}
             onClick={() => setShowOverdue(!showOverdue)}
-            className={showOverdue ? "border-orange-400 text-orange-600 bg-orange-50 dark:bg-orange-950/20" : ""}
           >
-            <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
-            {showOverdue ? "Show All" : "Show Overdue"}
+            <AlertTriangle className="w-3 h-3 mr-1" />
+            {showOverdue ? "Show All" : "Overdue"}
             {stats?.overdueFollowUps ? (
-              <Badge variant="secondary" className="ml-1.5 h-4 px-1 text-[10px] bg-orange-200 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
+              <Badge variant="secondary" className="ml-1 h-4 px-1 text-[9px] bg-orange-200 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
                 {stats.overdueFollowUps}
               </Badge>
             ) : null}
           </Button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-5 gap-2">
           {[
-            { label: "Total Contacted", value: stats?.totalContacted ?? "—", icon: <Users className="w-4 h-4" />, color: "text-blue-600" },
-            { label: "Awaiting Response", value: stats?.awaitingResponse ?? "—", icon: <Clock className="w-4 h-4" />, color: "text-yellow-600" },
-            { label: "Meetings Set", value: stats?.meetingsSet ?? "—", icon: <Calendar className="w-4 h-4" />, color: "text-green-600" },
-            { label: "Conversions", value: stats?.conversions ?? "—", icon: <Target className="w-4 h-4" />, color: "text-primary" },
-            { label: "Conversion Rate", value: `${conversionRate}%`, icon: <TrendingUp className="w-4 h-4" />, color: "text-purple-600" },
+            { label: "Contacted", value: stats?.totalContacted ?? "\u2014", icon: <Users className="w-3.5 h-3.5" />, color: "text-blue-600" },
+            { label: "Awaiting", value: stats?.awaitingResponse ?? "\u2014", icon: <Clock className="w-3.5 h-3.5" />, color: "text-yellow-600" },
+            { label: "Meetings", value: stats?.meetingsSet ?? "\u2014", icon: <Calendar className="w-3.5 h-3.5" />, color: "text-green-600" },
+            { label: "Closed", value: stats?.conversions ?? "\u2014", icon: <Target className="w-3.5 h-3.5" />, color: "text-primary" },
+            { label: "Rate", value: `${conversionRate}%`, icon: <TrendingUp className="w-3.5 h-3.5" />, color: "text-purple-600" },
           ].map((stat) => (
-            <div key={stat.label} className="border rounded-lg p-3 bg-card flex items-center gap-3">
+            <div key={stat.label} className="border rounded-md p-2 bg-card flex items-center gap-2">
               <div className={stat.color}>{stat.icon}</div>
               <div>
-                <div className="text-lg font-semibold tabular-nums">{stat.value}</div>
-                <div className="text-[11px] text-muted-foreground">{stat.label}</div>
+                <div className="text-sm font-semibold tabular-nums leading-tight">{stat.value}</div>
+                <div className="text-[10px] text-muted-foreground">{stat.label}</div>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="relative flex-1 min-w-[160px] max-w-xs">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Search broker name or email..."
+              value={searchInput}
+              onChange={(e) => { setSearchInput(e.target.value); setPage(1); }}
+              className="pl-7 h-7 text-xs"
+            />
+          </div>
+
           <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v === "all" ? "" : v); setPage(1); }}>
-            <SelectTrigger className="w-[150px] h-9 text-sm">
-              <SelectValue placeholder="All Statuses" />
+            <SelectTrigger className="w-[110px] h-7 text-xs">
+              <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
@@ -185,8 +222,8 @@ export default function OutreachPage() {
           </Select>
 
           <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v === "all" ? "" : v); setPage(1); }}>
-            <SelectTrigger className="w-[130px] h-9 text-sm">
-              <SelectValue placeholder="All Types" />
+            <SelectTrigger className="w-[90px] h-7 text-xs">
+              <SelectValue placeholder="Type" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Types</SelectItem>
@@ -194,27 +231,15 @@ export default function OutreachPage() {
             </SelectContent>
           </Select>
 
-          <div className="flex items-center gap-1.5">
-            <Input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="h-9 text-sm w-36"
-              placeholder="From"
-            />
-            <span className="text-muted-foreground text-sm">–</span>
-            <Input
-              type="date"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="h-9 text-sm w-36"
-              placeholder="To"
-            />
+          <div className="flex items-center gap-1">
+            <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className="h-7 text-xs w-28" />
+            <span className="text-muted-foreground text-xs">\u2013</span>
+            <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className="h-7 text-xs w-28" />
           </div>
 
-          {(statusFilter || typeFilter || dateFrom || dateTo || showOverdue) && (
-            <Button variant="ghost" size="sm" className="h-9 text-xs" onClick={() => {
-              setStatusFilter(""); setTypeFilter(""); setDateFrom(""); setDateTo(""); setShowOverdue(false); setPage(1);
+          {(statusFilter || typeFilter || dateFrom || dateTo || showOverdue || searchInput) && (
+            <Button variant="ghost" size="sm" className="h-7 text-[10px]" onClick={() => {
+              setStatusFilter(""); setTypeFilter(""); setDateFrom(""); setDateTo(""); setShowOverdue(false); setSearchInput(""); setPage(1);
             }}>
               Clear
             </Button>
@@ -222,90 +247,120 @@ export default function OutreachPage() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto px-4 py-3">
+      <div className="flex-1 overflow-auto px-3 py-1.5">
         {isLoading ? (
-          <div className="space-y-2">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}</div>
+          <div className="space-y-1">{[...Array(12)].map((_, i) => <Skeleton key={i} className="h-8 w-full rounded" />)}</div>
         ) : (
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-md overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead className="text-xs font-medium">Broker</TableHead>
-                  <TableHead className="text-xs font-medium w-20">State</TableHead>
-                  <TableHead className="text-xs font-medium w-24">Type</TableHead>
-                  <TableHead className="text-xs font-medium">Template Used</TableHead>
-                  <TableHead className="text-xs font-medium w-36">Status</TableHead>
-                  <TableHead className="text-xs font-medium w-28">Date</TableHead>
-                  <TableHead className="text-xs font-medium w-28">Follow-up</TableHead>
-                  <TableHead className="text-xs font-medium w-20">Notes</TableHead>
-                  <TableHead className="text-xs font-medium w-20"></TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-6"></TableHead>
+                  <TableHead className="text-[11px] font-medium px-2">Broker</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-16">State</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-16">Type</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-12">Step</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2">Template</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-28">Status</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-24">Date</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-24">Follow-up</TableHead>
+                  <TableHead className="text-[11px] font-medium px-2 w-10"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data?.logs.map((log) => (
-                  <TableRow
-                    key={log.id}
-                    className={isOverdue(log) ? "bg-orange-50/50 dark:bg-orange-950/10" : ""}
-                  >
-                    <TableCell className="text-sm font-medium">
-                      <div className="flex items-center gap-1.5">
-                        {isOverdue(log) && <AlertTriangle className="w-3.5 h-3.5 text-orange-500 shrink-0" />}
-                        <button
-                          className="hover:underline text-left truncate max-w-[160px]"
-                          onClick={() => navigate(`/brokers?id=${log.broker_id}`)}
+                  <Fragment key={log.id}>
+                    <TableRow
+                      className={`cursor-pointer transition-colors h-8 ${isOverdue(log) ? "bg-orange-50/50 dark:bg-orange-950/10" : "hover:bg-muted/30"}`}
+                      onClick={() => setExpandedRowId(expandedRowId === log.id ? null : log.id)}
+                    >
+                      <TableCell className="px-2 py-1">
+                        {expandedRowId === log.id ? <ChevronUp className="w-3 h-3 text-muted-foreground" /> : <ChevronDown className="w-3 h-3 text-muted-foreground" />}
+                      </TableCell>
+                      <TableCell className="text-xs font-medium px-2 py-1">
+                        <div className="flex items-center gap-1">
+                          {isOverdue(log) && <AlertTriangle className="w-3 h-3 text-orange-500 shrink-0" />}
+                          <button
+                            className="hover:underline text-left truncate max-w-[140px]"
+                            onClick={(e) => { e.stopPropagation(); navigate(`/brokers?id=${log.broker_id}`); }}
+                          >
+                            {log.broker_name || `#${log.broker_id}`}
+                          </button>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground px-2 py-1">{log.broker_state || "\u2014"}</TableCell>
+                      <TableCell className="px-2 py-1">
+                        <div className="flex items-center gap-1 text-xs capitalize">
+                          {TYPE_ICON[log.outreach_type]}
+                          {log.outreach_type}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground px-2 py-1 tabular-nums">
+                        {log.step_number ? `Step ${log.step_number}` : "\u2014"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground px-2 py-1" title={log.message_template_used || ""}>
+                        <span className="block max-w-[200px] truncate">{log.message_template_used || "\u2014"}</span>
+                      </TableCell>
+                      <TableCell className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                        <Select
+                          value={log.status}
+                          onValueChange={(v) => updateMutation.mutate({ id: log.id, status: v as OutreachLogStatus })}
                         >
-                          {log.broker_name || `Broker #${log.broker_id}`}
+                          <SelectTrigger className="h-5 border-0 bg-transparent p-0.5 w-24">
+                            <Badge className={`text-[9px] px-1 py-0 pointer-events-none border-0 ${STATUS_BADGE[log.status] || ""}`}>
+                              {STATUS_LABELS[log.status] || log.status}
+                            </Badge>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {outreachLogStatusEnum.map(s => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell className="text-[10px] text-muted-foreground tabular-nums px-2 py-1">
+                        {log.created_at ? new Date(log.created_at).toLocaleDateString() : "\u2014"}
+                      </TableCell>
+                      <TableCell className={`text-[10px] tabular-nums px-2 py-1 ${isOverdue(log) ? "text-orange-600 font-medium" : "text-muted-foreground"}`}>
+                        {log.follow_up_date || "\u2014"}
+                      </TableCell>
+                      <TableCell className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => deleteMutation.mutate(log.id)}
+                          className="text-xs text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          \u00D7
                         </button>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{log.broker_state || "—"}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-1.5 text-sm capitalize">
-                        {TYPE_ICON[log.outreach_type]}
-                        {log.outreach_type}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">
-                      {log.message_template_used || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={log.status}
-                        onValueChange={(v) => updateMutation.mutate({ id: log.id, status: v as OutreachLogStatus })}
-                      >
-                        <SelectTrigger className="h-7 border-0 bg-transparent p-1 w-32">
-                          <Badge className={`text-[10px] px-1.5 py-0 pointer-events-none border-0 ${STATUS_BADGE[log.status] || ""}`}>
-                            {STATUS_LABELS[log.status] || log.status}
-                          </Badge>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {outreachLogStatusEnum.map(s => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      {log.created_at ? new Date(log.created_at).toLocaleDateString() : "—"}
-                    </TableCell>
-                    <TableCell className={`text-xs tabular-nums ${isOverdue(log) ? "text-orange-600 font-medium" : "text-muted-foreground"}`}>
-                      {log.follow_up_date || "—"}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground max-w-[80px] truncate" title={log.notes || ""}>
-                      {log.notes || "—"}
-                    </TableCell>
-                    <TableCell>
-                      <button
-                        onClick={() => deleteMutation.mutate(log.id)}
-                        className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        ×
-                      </button>
-                    </TableCell>
-                  </TableRow>
+                      </TableCell>
+                    </TableRow>
+                    {expandedRowId === log.id && (
+                      <TableRow className="bg-muted/20">
+                        <TableCell colSpan={10} className="px-4 py-2">
+                          <div className="space-y-1.5 text-xs">
+                            {log.broker_email && (
+                              <div><span className="font-medium text-muted-foreground">To:</span> {log.broker_email}</div>
+                            )}
+                            {log.email_subject && (
+                              <div><span className="font-medium text-muted-foreground">Subject:</span> {log.email_subject}</div>
+                            )}
+                            {log.email_body ? (
+                              <div className="mt-1 p-2 bg-card border rounded text-xs whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed">
+                                {log.email_body}
+                              </div>
+                            ) : (
+                              <div className="text-muted-foreground italic">No email body available</div>
+                            )}
+                            {log.notes && (
+                              <div className="mt-1"><span className="font-medium text-muted-foreground">Notes:</span> {log.notes}</div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
                 ))}
                 {data?.logs.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
-                      {showOverdue ? "No overdue follow-ups." : "No outreach logged yet. Start reaching out to brokers!"}
+                    <TableCell colSpan={10} className="h-24 text-center text-muted-foreground text-sm">
+                      {showOverdue ? "No overdue follow-ups." : "No outreach logged yet."}
                     </TableCell>
                   </TableRow>
                 )}
@@ -316,17 +371,17 @@ export default function OutreachPage() {
       </div>
 
       {data && data.totalPages > 1 && (
-        <div className="px-4 py-3 border-t flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">
-            Showing {(data.page - 1) * 50 + 1}–{Math.min(data.page * 50, data.total)} of {data.total.toLocaleString()}
+        <div className="px-3 py-1.5 border-t flex items-center justify-between">
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {((data.page - 1) * 50 + 1).toLocaleString()}-{Math.min(data.page * 50, data.total).toLocaleString()} of {data.total.toLocaleString()}
           </span>
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-              <ChevronLeft className="w-4 h-4" />
+            <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+              <ChevronLeft className="w-3.5 h-3.5" />
             </Button>
-            <span className="text-sm px-3 tabular-nums">Page {data.page} of {data.totalPages}</span>
-            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(data.totalPages, p + 1))} disabled={page === data.totalPages}>
-              <ChevronRight className="w-4 h-4" />
+            <span className="text-xs px-2 tabular-nums">{data.page} / {data.totalPages}</span>
+            <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => setPage(p => Math.min(data.totalPages, p + 1))} disabled={page === data.totalPages}>
+              <ChevronRight className="w-3.5 h-3.5" />
             </Button>
           </div>
         </div>

@@ -183,7 +183,7 @@ const BUILT_IN_PRESETS: BuiltInPreset[] = [
   },
   {
     id: "high-value",
-    name: "High-Value Brokers",
+    name: "High-Value",
     icon: <TrendingUp className="w-3 h-3" />,
     filters: {
       avgPriceMin: "1000000",
@@ -195,7 +195,7 @@ const BUILT_IN_PRESETS: BuiltInPreset[] = [
   },
   {
     id: "active-residential",
-    name: "Active Residential",
+    name: "Residential",
     icon: <Home className="w-3 h-3" />,
     filters: {
       specialties: ["House", "Condo", "Townhouse"],
@@ -207,7 +207,7 @@ const BUILT_IN_PRESETS: BuiltInPreset[] = [
   },
   {
     id: "commercial-specialists",
-    name: "Commercial Specialists",
+    name: "Commercial",
     icon: <Building2 className="w-3 h-3" />,
     filters: {
       specialties: ["Commercial"],
@@ -233,7 +233,7 @@ const BUILT_IN_PRESETS: BuiltInPreset[] = [
   },
   {
     id: "land-development",
-    name: "Land & Development",
+    name: "Land",
     icon: <TreePine className="w-3 h-3" />,
     filters: {
       specialties: ["Lot/Land"],
@@ -283,6 +283,7 @@ export default function Brokers() {
   const [aiLeadsData, setAiLeadsData] = useState<{ brokers: (Broker & { lead_score: number })[]; total: number } | null>(null);
   const [aiLeadsLoading, setAiLeadsLoading] = useState(false);
 
+  const debouncedSearch = useDebounce(searchInput, 300);
   const debouncedBrokerage = useDebounce(filters.brokerage, 400);
   const debouncedCity = useDebounce(filters.city, 400);
   const debouncedDealsMin = useDebounce(filters.dealsClosedMin, 400);
@@ -292,8 +293,13 @@ export default function Brokers() {
   const debouncedExpMin = useDebounce(filters.experienceMin, 400);
   const debouncedExpMax = useDebounce(filters.experienceMax, 400);
 
+  useEffect(() => {
+    setFilters(prev => ({ ...prev, search: debouncedSearch }));
+  }, [debouncedSearch]);
+
   const queryFilters = useMemo(() => ({
     ...filters,
+    search: debouncedSearch,
     brokerage: debouncedBrokerage,
     city: debouncedCity,
     dealsClosedMin: debouncedDealsMin,
@@ -302,7 +308,7 @@ export default function Brokers() {
     avgPriceMax: debouncedPriceMax,
     experienceMin: debouncedExpMin,
     experienceMax: debouncedExpMax,
-  }), [filters.search, filters.state, filters.status, filters.assigned_to, filters.specialties, filters.sourceType, filters.hasEmail, filters.hasPhone, filters.hasLinkedin, filters.sort_by, filters.sort_order, debouncedBrokerage, debouncedCity, debouncedDealsMin, debouncedDealsMax, debouncedPriceMin, debouncedPriceMax, debouncedExpMin, debouncedExpMax]);
+  }), [debouncedSearch, filters.state, filters.status, filters.assigned_to, filters.specialties, filters.sourceType, filters.hasEmail, filters.hasPhone, filters.hasLinkedin, filters.sort_by, filters.sort_order, debouncedBrokerage, debouncedCity, debouncedDealsMin, debouncedDealsMax, debouncedPriceMin, debouncedPriceMax, debouncedExpMin, debouncedExpMax]);
 
   useEffect(() => { setPage(1); }, [queryFilters]);
 
@@ -437,11 +443,6 @@ export default function Brokers() {
     },
   });
 
-  const handleSearch = useCallback(() => {
-    setFilters(prev => ({ ...prev, search: searchInput }));
-    setActivePresetId(null);
-  }, [searchInput]);
-
   const handleExport = () => {
     const params = buildQueryParams(queryFilters);
     window.open(`/api/brokers/export?${params.toString()}`, "_blank");
@@ -538,30 +539,30 @@ export default function Brokers() {
   };
 
   const activeChips: { label: string; key: keyof Filters }[] = [];
-  if (filters.search) activeChips.push({ label: `Search: "${filters.search}"`, key: "search" });
-  if (filters.state) activeChips.push({ label: `State: ${filters.state}`, key: "state" });
-  if (filters.status) activeChips.push({ label: `Status: ${STATUS_LABELS[filters.status] || filters.status}`, key: "status" });
+  if (filters.search) activeChips.push({ label: `"${filters.search}"`, key: "search" });
+  if (filters.state) activeChips.push({ label: filters.state, key: "state" });
+  if (filters.status) activeChips.push({ label: STATUS_LABELS[filters.status] || filters.status, key: "status" });
   if (filters.dealsClosedMin || filters.dealsClosedMax) {
     const min = filters.dealsClosedMin || "0";
     const max = filters.dealsClosedMax || "\u221E";
-    activeChips.push({ label: `Deals: ${min}\u2013${max}`, key: "dealsClosedMin" });
+    activeChips.push({ label: `Deals ${min}\u2013${max}`, key: "dealsClosedMin" });
   }
   if (filters.avgPriceMin || filters.avgPriceMax) {
     const min = filters.avgPriceMin ? formatPrice(filters.avgPriceMin) : "$0";
     const max = filters.avgPriceMax ? formatPrice(filters.avgPriceMax) : "\u221E";
-    activeChips.push({ label: `Avg Price: ${min}\u2013${max}`, key: "avgPriceMin" });
+    activeChips.push({ label: `${min}\u2013${max}`, key: "avgPriceMin" });
   }
   if (filters.experienceMin || filters.experienceMax) {
     const min = filters.experienceMin || "0";
     const max = filters.experienceMax || "\u221E";
-    activeChips.push({ label: `Exp: ${min}\u2013${max} yrs`, key: "experienceMin" });
+    activeChips.push({ label: `${min}\u2013${max}yr`, key: "experienceMin" });
   }
   if (filters.specialties.length > 0) {
-    activeChips.push({ label: `Types: ${filters.specialties.join(", ")}`, key: "specialties" });
+    activeChips.push({ label: filters.specialties.join(", "), key: "specialties" });
   }
   if (filters.brokerage) activeChips.push({ label: `Brokerage: ${filters.brokerage}`, key: "brokerage" });
   if (filters.city) activeChips.push({ label: `City: ${filters.city}`, key: "city" });
-  if (filters.sourceType) activeChips.push({ label: `Source: ${filters.sourceType}`, key: "sourceType" });
+  if (filters.sourceType) activeChips.push({ label: filters.sourceType, key: "sourceType" });
   if (filters.hasEmail) activeChips.push({ label: "Has Email", key: "hasEmail" });
   if (filters.hasPhone) activeChips.push({ label: "Has Phone", key: "hasPhone" });
   if (filters.hasLinkedin) activeChips.push({ label: "Has LinkedIn", key: "hasLinkedin" });
@@ -631,126 +632,61 @@ export default function Brokers() {
   return (
     <div className="flex h-full" data-testid="brokers-page">
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 pb-0 space-y-3">
+        <div className="px-3 pt-2 pb-0 space-y-1.5">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-semibold" data-testid="brokers-title">Brokers</h1>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold" data-testid="brokers-title">Brokers</h1>
+              {data && !aiLeadsMode && (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {((data.page - 1) * 50 + 1).toLocaleString()}-{Math.min(data.page * 50, data.total).toLocaleString()} of {data.total.toLocaleString()}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
               <Button
                 size="sm"
                 onClick={aiLeadsMode ? exitAiLeadsMode : fetchAiLeads}
                 disabled={aiLeadsLoading}
-                className={aiLeadsMode
+                className={`h-7 text-xs ${aiLeadsMode
                   ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md"
                   : "bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-sm"
-                }
+                }`}
                 data-testid="button-ai-leads"
               >
                 {aiLeadsLoading ? (
-                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
                 ) : aiLeadsMode ? (
-                  <X className="w-4 h-4 mr-1.5" />
+                  <X className="w-3.5 h-3.5 mr-1" />
                 ) : (
-                  <Sparkles className="w-4 h-4 mr-1.5" />
+                  <Sparkles className="w-3.5 h-3.5 mr-1" />
                 )}
-                {aiLeadsLoading ? "Scoring..." : aiLeadsMode ? "Exit AI Leads" : "Find Best 100 Leads"}
+                {aiLeadsLoading ? "Scoring..." : aiLeadsMode ? "Exit AI" : "AI Leads"}
               </Button>
-              <Button variant="outline" size="sm" onClick={openBatchDialog} data-testid="button-batch-enrich">
-                <Sparkles className="w-4 h-4 mr-1.5" />
-                Batch AI Enrich
+              <Button variant="outline" size="sm" onClick={openBatchDialog} className="h-7 text-xs" data-testid="button-batch-enrich">
+                <Sparkles className="w-3.5 h-3.5 mr-1" />
+                Batch
               </Button>
-              <Button variant="outline" size="sm" onClick={handleExport} data-testid="button-export">
-                <Download className="w-4 h-4 mr-1.5" />
-                Export CSV
+              <Button variant="outline" size="sm" onClick={handleExport} className="h-7 text-xs" data-testid="button-export">
+                <Download className="w-3.5 h-3.5 mr-1" />
+                CSV
               </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-thin">
-            {BUILT_IN_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                onClick={() => applyPreset(preset.id, preset.filters)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border whitespace-nowrap transition-all shrink-0 ${
-                  activePresetId === preset.id
-                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                    : "bg-background border-border hover:bg-muted hover:border-muted-foreground/30"
-                }`}
-              >
-                {preset.icon}
-                {preset.name}
-              </button>
-            ))}
-
-            {customPresets.map((preset) => (
-              <div key={preset.id} className="flex items-center shrink-0">
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => applyPreset(`custom-${preset.id}`, preset.filters as Partial<Filters>)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") applyPreset(`custom-${preset.id}`, preset.filters as Partial<Filters>); }}
-                  className={`flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 text-xs font-medium rounded-full border whitespace-nowrap transition-all cursor-pointer ${
-                    activePresetId === `custom-${preset.id}`
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : "bg-background border-border hover:bg-muted hover:border-muted-foreground/30"
-                  }`}
-                >
-                  <Bookmark className="w-3 h-3" />
-                  {preset.name}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deletePresetMutation.mutate(preset.id);
-                      if (activePresetId === `custom-${preset.id}`) setActivePresetId(null);
-                    }}
-                    className={`ml-0.5 p-0.5 rounded-full transition-colors ${
-                      activePresetId === `custom-${preset.id}`
-                        ? "hover:bg-primary-foreground/20"
-                        : "hover:bg-destructive/10 hover:text-destructive"
-                    }`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            {activeFilterCount > 0 && (
-              <button
-                onClick={() => setSavePresetOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-dashed border-primary/40 text-primary hover:bg-primary/5 whitespace-nowrap transition-all shrink-0"
-              >
-                <Plus className="w-3 h-3" />
-                Save Preset
-              </button>
-            )}
-
-            {activeFilterCount > 0 && (
-              <button
-                onClick={clearAllFilters}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border border-border text-muted-foreground hover:bg-muted whitespace-nowrap transition-all shrink-0"
-              >
-                <X className="w-3 h-3" />
-                Clear All
-              </button>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <div className="flex items-center gap-1.5">
+            <div className="relative flex-1 min-w-[180px] max-w-xs">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search name, email, office, city..."
+                placeholder="Search name, email, office..."
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                className="pl-8 h-9 text-sm"
+                onChange={(e) => { setSearchInput(e.target.value); setActivePresetId(null); }}
+                className="pl-7 h-7 text-xs"
                 data-testid="input-search"
               />
             </div>
-            <Button size="sm" variant="secondary" onClick={handleSearch} className="h-9" data-testid="button-search">Search</Button>
 
             <Select value={filters.state} onValueChange={(v) => updateFilter("state", v === "all" ? "" : v)}>
-              <SelectTrigger className="w-[120px] h-9 text-sm" data-testid="select-state">
+              <SelectTrigger className="w-[90px] h-7 text-xs" data-testid="select-state">
                 <SelectValue placeholder="State" />
               </SelectTrigger>
               <SelectContent>
@@ -760,7 +696,7 @@ export default function Brokers() {
             </Select>
 
             <Select value={filters.status} onValueChange={(v) => updateFilter("status", v === "all" ? "" : v)}>
-              <SelectTrigger className="w-[150px] h-9 text-sm" data-testid="select-status">
+              <SelectTrigger className="w-[120px] h-7 text-xs" data-testid="select-status">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -773,110 +709,114 @@ export default function Brokers() {
               variant={showAdvanced ? "default" : "outline"}
               size="sm"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="h-9 text-sm gap-1.5"
+              className="h-7 text-xs gap-1"
             >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              Filters
+              <SlidersHorizontal className="w-3 h-3" />
               {activeFilterCount > 0 && (
-                <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px] rounded-full">
+                <Badge variant="secondary" className="h-4 px-1 text-[9px] rounded-full">
                   {activeFilterCount}
                 </Badge>
               )}
               {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
             </Button>
+
+            <div className="flex items-center gap-1 overflow-x-auto scrollbar-thin ml-1">
+              {BUILT_IN_PRESETS.map((preset) => (
+                <button
+                  key={preset.id}
+                  onClick={() => applyPreset(preset.id, preset.filters)}
+                  className={`flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full border whitespace-nowrap transition-all shrink-0 ${
+                    activePresetId === preset.id
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background border-border hover:bg-muted"
+                  }`}
+                >
+                  {preset.icon}
+                  {preset.name}
+                </button>
+              ))}
+
+              {customPresets.map((preset) => (
+                <div key={preset.id} className="flex items-center shrink-0">
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => applyPreset(`custom-${preset.id}`, preset.filters as Partial<Filters>)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") applyPreset(`custom-${preset.id}`, preset.filters as Partial<Filters>); }}
+                    className={`flex items-center gap-1 pl-2 pr-1 py-0.5 text-[10px] font-medium rounded-full border whitespace-nowrap transition-all cursor-pointer ${
+                      activePresetId === `custom-${preset.id}`
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background border-border hover:bg-muted"
+                    }`}
+                  >
+                    <Bookmark className="w-2.5 h-2.5" />
+                    {preset.name}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deletePresetMutation.mutate(preset.id);
+                        if (activePresetId === `custom-${preset.id}`) setActivePresetId(null);
+                      }}
+                      className="p-0.5 rounded-full hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {showAdvanced && (
-            <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Deals Closed</label>
+            <div className="border rounded-md p-2 space-y-2 bg-muted/30">
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                <div className="space-y-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Deals Closed</label>
                   <div className="flex gap-1">
-                    <Input
-                      type="number" placeholder="Min" value={filters.dealsClosedMin}
-                      onChange={(e) => updateFilter("dealsClosedMin", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                    <Input
-                      type="number" placeholder="Max" value={filters.dealsClosedMax}
-                      onChange={(e) => updateFilter("dealsClosedMax", e.target.value)}
-                      className="h-8 text-xs"
-                    />
+                    <Input type="number" placeholder="Min" value={filters.dealsClosedMin} onChange={(e) => updateFilter("dealsClosedMin", e.target.value)} className="h-6 text-[11px] px-1.5" />
+                    <Input type="number" placeholder="Max" value={filters.dealsClosedMax} onChange={(e) => updateFilter("dealsClosedMax", e.target.value)} className="h-6 text-[11px] px-1.5" />
                   </div>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Avg Deal Price</label>
+                <div className="space-y-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Avg Price</label>
                   <div className="flex gap-1">
-                    <Input
-                      type="number" placeholder="Min $" value={filters.avgPriceMin}
-                      onChange={(e) => updateFilter("avgPriceMin", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                    <Input
-                      type="number" placeholder="Max $" value={filters.avgPriceMax}
-                      onChange={(e) => updateFilter("avgPriceMax", e.target.value)}
-                      className="h-8 text-xs"
-                    />
+                    <Input type="number" placeholder="Min $" value={filters.avgPriceMin} onChange={(e) => updateFilter("avgPriceMin", e.target.value)} className="h-6 text-[11px] px-1.5" />
+                    <Input type="number" placeholder="Max $" value={filters.avgPriceMax} onChange={(e) => updateFilter("avgPriceMax", e.target.value)} className="h-6 text-[11px] px-1.5" />
                   </div>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Experience (yrs)</label>
+                <div className="space-y-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Experience (yrs)</label>
                   <div className="flex gap-1">
-                    <Input
-                      type="number" placeholder="Min" value={filters.experienceMin}
-                      onChange={(e) => updateFilter("experienceMin", e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                    <Input
-                      type="number" placeholder="Max" value={filters.experienceMax}
-                      onChange={(e) => updateFilter("experienceMax", e.target.value)}
-                      className="h-8 text-xs"
-                    />
+                    <Input type="number" placeholder="Min" value={filters.experienceMin} onChange={(e) => updateFilter("experienceMin", e.target.value)} className="h-6 text-[11px] px-1.5" />
+                    <Input type="number" placeholder="Max" value={filters.experienceMax} onChange={(e) => updateFilter("experienceMax", e.target.value)} className="h-6 text-[11px] px-1.5" />
                   </div>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Brokerage</label>
-                  <Input
-                    placeholder="Search brokerage..." value={filters.brokerage}
-                    onChange={(e) => updateFilter("brokerage", e.target.value)}
-                    className="h-8 text-xs"
-                  />
+                <div className="space-y-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Brokerage</label>
+                  <Input placeholder="Search..." value={filters.brokerage} onChange={(e) => updateFilter("brokerage", e.target.value)} className="h-6 text-[11px] px-1.5" />
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">City</label>
-                  <Input
-                    placeholder="Search city..." value={filters.city}
-                    onChange={(e) => updateFilter("city", e.target.value)}
-                    className="h-8 text-xs"
-                  />
+                <div className="space-y-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">City</label>
+                  <Input placeholder="Search..." value={filters.city} onChange={(e) => updateFilter("city", e.target.value)} className="h-6 text-[11px] px-1.5" />
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Source</label>
+                <div className="space-y-0.5">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Source</label>
                   <Select value={filters.sourceType} onValueChange={(v) => updateFilter("sourceType", v === "all" ? "" : v)}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="All Sources" />
-                    </SelectTrigger>
+                    <SelectTrigger className="h-6 text-[11px]"><SelectValue placeholder="All" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All Sources</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
                       {SOURCE_TYPES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
-
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Property Types:</label>
-                <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap gap-1">
                   {SPECIALTIES.map((spec) => (
                     <button
                       key={spec}
                       onClick={() => toggleSpecialty(spec)}
-                      className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                      className={`px-2 py-0.5 text-[10px] rounded-full border transition-colors ${
                         filters.specialties.includes(spec)
                           ? "bg-primary text-primary-foreground border-primary"
                           : "bg-background border-border hover:bg-muted"
@@ -886,19 +826,18 @@ export default function Brokers() {
                     </button>
                   ))}
                 </div>
-
-                <div className="ml-auto flex items-center gap-3">
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <Checkbox checked={filters.hasEmail} onCheckedChange={(v) => updateFilter("hasEmail", !!v)} />
-                    <Mail className="w-3 h-3" /> Has Email
+                <div className="ml-auto flex items-center gap-2">
+                  <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                    <Checkbox checked={filters.hasEmail} onCheckedChange={(v) => updateFilter("hasEmail", !!v)} className="w-3 h-3" />
+                    <Mail className="w-2.5 h-2.5" /> Email
                   </label>
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <Checkbox checked={filters.hasPhone} onCheckedChange={(v) => updateFilter("hasPhone", !!v)} />
-                    <Phone className="w-3 h-3" /> Has Phone
+                  <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                    <Checkbox checked={filters.hasPhone} onCheckedChange={(v) => updateFilter("hasPhone", !!v)} className="w-3 h-3" />
+                    <Phone className="w-2.5 h-2.5" /> Phone
                   </label>
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <Checkbox checked={filters.hasLinkedin} onCheckedChange={(v) => updateFilter("hasLinkedin", !!v)} />
-                    <Linkedin className="w-3 h-3" /> Has LinkedIn
+                  <label className="flex items-center gap-1 text-[10px] cursor-pointer">
+                    <Checkbox checked={filters.hasLinkedin} onCheckedChange={(v) => updateFilter("hasLinkedin", !!v)} className="w-3 h-3" />
+                    <Linkedin className="w-2.5 h-2.5" /> LinkedIn
                   </label>
                 </div>
               </div>
@@ -906,12 +845,12 @@ export default function Brokers() {
           )}
 
           {activeChips.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap items-center gap-1">
               {activeChips.map((chip) => (
                 <Badge
                   key={chip.key}
                   variant="secondary"
-                  className="pl-2 pr-1 py-0.5 text-xs gap-1 cursor-pointer hover:bg-destructive/10"
+                  className="pl-1.5 pr-0.5 py-0 text-[10px] gap-0.5 cursor-pointer hover:bg-destructive/10 h-5"
                   onClick={() => {
                     if (chip.key === "dealsClosedMin") { removeFilter("dealsClosedMin"); removeFilter("dealsClosedMax"); }
                     else if (chip.key === "avgPriceMin") { removeFilter("avgPriceMin"); removeFilter("avgPriceMax"); }
@@ -920,63 +859,67 @@ export default function Brokers() {
                   }}
                 >
                   {chip.label}
-                  <X className="w-3 h-3" />
+                  <X className="w-2.5 h-2.5" />
                 </Badge>
               ))}
+              <button onClick={clearAllFilters} className="text-[10px] text-muted-foreground hover:text-foreground ml-1">Clear all</button>
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={() => setSavePresetOpen(true)}
+                  className="flex items-center gap-0.5 text-[10px] text-primary hover:text-primary/80 ml-1"
+                >
+                  <Plus className="w-2.5 h-2.5" /> Save
+                </button>
+              )}
             </div>
           )}
 
           {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
-              <span className="text-sm font-medium">{selectedIds.size} selected</span>
+            <div className="flex items-center gap-2 p-1.5 bg-muted rounded text-xs">
+              <span className="font-medium">{selectedIds.size} selected</span>
               <Select onValueChange={(v) => bulkMutation.mutate(v as OutreachStatus)}>
-                <SelectTrigger className="w-[160px] h-8 text-sm" data-testid="select-bulk-status">
+                <SelectTrigger className="w-[130px] h-6 text-xs" data-testid="select-bulk-status">
                   <SelectValue placeholder="Set status..." />
                 </SelectTrigger>
                 <SelectContent>
                   {outreachStatusEnum.map((s) => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())} data-testid="button-clear-selection">Clear</Button>
+              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setSelectedIds(new Set())} data-testid="button-clear-selection">Clear</Button>
             </div>
           )}
         </div>
 
-        <div className="flex-1 overflow-auto px-4 py-3">
+        <div className="flex-1 overflow-auto px-3 py-1.5">
           {aiLeadsMode && aiLeadsData && (
-            <div className="mb-3 p-3 rounded-lg bg-gradient-to-r from-violet-500/10 to-indigo-500/10 border border-violet-200 dark:border-violet-800">
+            <div className="mb-2 p-2 rounded-md bg-gradient-to-r from-violet-500/10 to-indigo-500/10 border border-violet-200 dark:border-violet-800">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-violet-600" />
-                  <span className="text-sm font-semibold text-violet-700 dark:text-violet-300">
+                  <Sparkles className="w-3.5 h-3.5 text-violet-600" />
+                  <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
                     Top {aiLeadsData.brokers.length} FreyjaIQ Leads
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    Scored from {aiLeadsData.total.toLocaleString()} eligible candidates (10+ deals, has email, uncontacted)
+                  <span className="text-[10px] text-muted-foreground">
+                    from {aiLeadsData.total.toLocaleString()} eligible
                   </span>
                 </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-green-500" /> 50-300 deals</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-blue-500" /> $250K-$1M avg</span>
-                  <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-violet-500" /> 5-15 yrs exp</span>
-                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2" onClick={exitAiLeadsMode}>
-                    <X className="w-3 h-3" /> Back to all
-                  </Button>
-                </div>
+                <Button variant="ghost" size="sm" className="h-5 text-[10px] gap-1 px-1.5" onClick={exitAiLeadsMode}>
+                  <X className="w-3 h-3" /> Back
+                </Button>
               </div>
             </div>
           )}
 
           {(aiLeadsMode ? false : isLoading) ? (
-            <div className="space-y-2">
-              {[...Array(10)].map((_, i) => <Skeleton key={i} className="h-10 w-full rounded" />)}
+            <div className="space-y-1">
+              {[...Array(15)].map((_, i) => <Skeleton key={i} className="h-8 w-full rounded" />)}
             </div>
           ) : (
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-md overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
-                    <TableHead className="w-10">
+                    <TableHead className="w-8 px-2">
                       <Checkbox
                         checked={(() => {
                           const rows = aiLeadsMode ? aiLeadsData?.brokers : data?.brokers;
@@ -988,38 +931,39 @@ export default function Brokers() {
                           if (selectedIds.size === rows.length) setSelectedIds(new Set());
                           else setSelectedIds(new Set(rows.map(b => b.id)));
                         }}
+                        className="w-3.5 h-3.5"
                         data-testid="checkbox-select-all"
                       />
                     </TableHead>
                     {aiLeadsMode && (
-                      <TableHead className="text-xs font-medium w-16">
-                        <span className="flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-violet-500" /> Score
+                      <TableHead className="text-[11px] font-medium w-14 px-1">
+                        <span className="flex items-center gap-0.5">
+                          <Sparkles className="w-2.5 h-2.5 text-violet-500" /> Score
                         </span>
                       </TableHead>
                     )}
-                    <TableHead className="text-xs font-medium cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("full_name")}>
+                    <TableHead className="text-[11px] font-medium cursor-pointer select-none px-2" onClick={() => !aiLeadsMode && toggleSort("full_name")}>
                       <span className="flex items-center">Name {!aiLeadsMode && <SortIcon field="full_name" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium">Email</TableHead>
-                    <TableHead className="text-xs font-medium">Phone</TableHead>
-                    <TableHead className="text-xs font-medium cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("office_name")}>
+                    <TableHead className="text-[11px] font-medium px-2">Email</TableHead>
+                    <TableHead className="text-[11px] font-medium px-2">Phone</TableHead>
+                    <TableHead className="text-[11px] font-medium cursor-pointer select-none px-2" onClick={() => !aiLeadsMode && toggleSort("office_name")}>
                       <span className="flex items-center">Office {!aiLeadsMode && <SortIcon field="office_name" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium">City</TableHead>
-                    <TableHead className="text-xs font-medium w-16 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("state")}>
-                      <span className="flex items-center">State {!aiLeadsMode && <SortIcon field="state" />}</span>
+                    <TableHead className="text-[11px] font-medium px-2">City</TableHead>
+                    <TableHead className="text-[11px] font-medium w-12 cursor-pointer select-none px-1" onClick={() => !aiLeadsMode && toggleSort("state")}>
+                      <span className="flex items-center">ST {!aiLeadsMode && <SortIcon field="state" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium w-16 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("recently_sold_count")}>
-                      <span className="flex items-center">Sold {!aiLeadsMode && <SortIcon field="recently_sold_count" />}</span>
+                    <TableHead className="text-[11px] font-medium w-12 cursor-pointer select-none px-1 text-right" onClick={() => !aiLeadsMode && toggleSort("recently_sold_count")}>
+                      <span className="flex items-center justify-end">Sold {!aiLeadsMode && <SortIcon field="recently_sold_count" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium w-20 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("average_price")}>
-                      <span className="flex items-center">Avg $ {!aiLeadsMode && <SortIcon field="average_price" />}</span>
+                    <TableHead className="text-[11px] font-medium w-16 cursor-pointer select-none px-1 text-right" onClick={() => !aiLeadsMode && toggleSort("average_price")}>
+                      <span className="flex items-center justify-end">Avg$ {!aiLeadsMode && <SortIcon field="average_price" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium w-12 cursor-pointer select-none" onClick={() => !aiLeadsMode && toggleSort("experience_years")}>
-                      <span className="flex items-center">Exp {!aiLeadsMode && <SortIcon field="experience_years" />}</span>
+                    <TableHead className="text-[11px] font-medium w-10 cursor-pointer select-none px-1 text-right" onClick={() => !aiLeadsMode && toggleSort("experience_years")}>
+                      <span className="flex items-center justify-end">Exp {!aiLeadsMode && <SortIcon field="experience_years" />}</span>
                     </TableHead>
-                    <TableHead className="text-xs font-medium w-40">Status</TableHead>
+                    <TableHead className="text-[11px] font-medium w-28 px-1">Status</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1028,61 +972,60 @@ export default function Brokers() {
                     return (
                       <TableRow
                         key={broker.id}
-                        className="cursor-pointer hover:bg-muted/30 transition-colors"
+                        className="cursor-pointer hover:bg-muted/30 transition-colors h-8"
                         onClick={() => setSelectedBrokerId(broker.id)}
                         data-testid={`row-broker-${broker.id}`}
                       >
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
                           <Checkbox
                             checked={selectedIds.has(broker.id)}
                             onCheckedChange={() => toggleSelect(broker.id)}
+                            className="w-3.5 h-3.5"
                             data-testid={`checkbox-broker-${broker.id}`}
                           />
                         </TableCell>
                         {aiLeadsMode && (
-                          <TableCell className="text-sm tabular-nums">
-                            <div className="flex items-center gap-1.5">
-                              <div className="w-8 h-1.5 bg-muted rounded-full overflow-hidden">
+                          <TableCell className="text-xs tabular-nums px-1 py-1">
+                            <div className="flex items-center gap-1">
+                              <div className="w-6 h-1 bg-muted rounded-full overflow-hidden">
                                 <div
                                   className={`h-full rounded-full ${
                                     (score ?? 0) >= 90 ? "bg-green-500" :
                                     (score ?? 0) >= 70 ? "bg-blue-500" :
-                                    (score ?? 0) >= 50 ? "bg-violet-500" :
-                                    "bg-muted-foreground"
+                                    "bg-violet-500"
                                   }`}
                                   style={{ width: `${Math.min(100, ((score ?? 0) / 118) * 100)}%` }}
                                 />
                               </div>
-                              <span className={`text-xs font-semibold ${
-                                (score ?? 0) >= 90 ? "text-green-600" :
-                                (score ?? 0) >= 70 ? "text-blue-600" :
-                                (score ?? 0) >= 50 ? "text-violet-600" :
-                                "text-muted-foreground"
-                              }`}>{score}</span>
+                              <span className="text-[10px] font-semibold">{score}</span>
                             </div>
                           </TableCell>
                         )}
-                        <TableCell className="text-sm font-medium max-w-[160px]">
+                        <TableCell className="text-xs font-medium px-2 py-1 max-w-[140px]">
                           <div className="flex items-center gap-1 truncate">
-                            {broker.linkedin_url && <Linkedin className="w-3 h-3 text-[#0077b5] shrink-0" />}
+                            {broker.linkedin_url && <Linkedin className="w-2.5 h-2.5 text-[#0077b5] shrink-0" />}
                             <span className="truncate">{broker.full_name}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[180px] truncate">{broker.email || "\u2014"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground whitespace-nowrap">{broker.phone || "\u2014"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground max-w-[140px] truncate">{broker.office_name || "\u2014"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{broker.city || "\u2014"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{broker.state || "\u2014"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.recently_sold_count || "\u2014"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.average_price || "\u2014"}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground tabular-nums">{broker.experience_years ? `${broker.experience_years}y` : "\u2014"}</TableCell>
-                        <TableCell onClick={(e) => e.stopPropagation()}>
+                        <TableCell className="text-xs text-muted-foreground px-2 py-1 max-w-[200px]">
+                          <span className="truncate block" title={broker.email || ""}>{broker.email || "\u2014"}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap px-2 py-1">{broker.phone || "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground px-2 py-1 max-w-[160px]">
+                          <span className="truncate block" title={broker.office_name || ""}>{broker.office_name || "\u2014"}</span>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground px-2 py-1">{broker.city || "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground px-1 py-1">{broker.state || "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground tabular-nums px-1 py-1 text-right">{broker.recently_sold_count || "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground tabular-nums px-1 py-1 text-right">{broker.average_price ? formatPrice(String(broker.average_price)) : "\u2014"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground tabular-nums px-1 py-1 text-right">{broker.experience_years ? `${broker.experience_years}y` : "\u2014"}</TableCell>
+                        <TableCell className="px-1 py-1" onClick={(e) => e.stopPropagation()}>
                           <Select
                             value={broker.outreach_status || "not_contacted"}
                             onValueChange={(v) => statusMutation.mutate({ id: broker.id, status: v as OutreachStatus })}
                           >
-                            <SelectTrigger className="h-7 text-xs border-0 bg-transparent w-36 p-1" data-testid={`select-status-${broker.id}`}>
-                              <Badge className={`text-[10px] px-1.5 py-0 pointer-events-none border-0 ${STATUS_BADGE_VARIANT[broker.outreach_status || "not_contacted"]}`}>
+                            <SelectTrigger className="h-5 text-[10px] border-0 bg-transparent w-28 p-0.5" data-testid={`select-status-${broker.id}`}>
+                              <Badge className={`text-[9px] px-1 py-0 pointer-events-none border-0 ${STATUS_BADGE_VARIANT[broker.outreach_status || "not_contacted"]}`}>
                                 {STATUS_LABELS[broker.outreach_status || "not_contacted"]}
                               </Badge>
                             </SelectTrigger>
@@ -1096,7 +1039,7 @@ export default function Brokers() {
                   })}
                   {((aiLeadsMode ? aiLeadsData?.brokers : data?.brokers)?.length ?? 0) === 0 && (
                     <TableRow>
-                      <TableCell colSpan={aiLeadsMode ? 12 : 11} className="h-32 text-center text-muted-foreground">
+                      <TableCell colSpan={aiLeadsMode ? 12 : 11} className="h-24 text-center text-muted-foreground text-sm">
                         {aiLeadsMode ? "No matching leads found." : "No brokers found. Try adjusting your filters."}
                       </TableCell>
                     </TableRow>
@@ -1108,30 +1051,29 @@ export default function Brokers() {
         </div>
 
         {!aiLeadsMode && data && data.totalPages > 1 && (
-          <div className="px-4 py-3 border-t flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">
-              Showing {(data.page - 1) * 50 + 1}\u2013{Math.min(data.page * 50, data.total)} of {data.total.toLocaleString()}
+          <div className="px-3 py-1.5 border-t flex items-center justify-between">
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {((data.page - 1) * 50 + 1).toLocaleString()}-{Math.min(data.page * 50, data.total).toLocaleString()} of {data.total.toLocaleString()}
             </span>
             <div className="flex items-center gap-1">
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} data-testid="button-prev-page">
-                <ChevronLeft className="w-4 h-4" />
+              <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} data-testid="button-prev-page">
+                <ChevronLeft className="w-3.5 h-3.5" />
               </Button>
-              <span className="text-sm px-3 tabular-nums">Page {data.page} of {data.totalPages.toLocaleString()}</span>
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))} disabled={page === data.totalPages} data-testid="button-next-page">
-                <ChevronRight className="w-4 h-4" />
+              <span className="text-xs px-2 tabular-nums">{data.page} / {data.totalPages.toLocaleString()}</span>
+              <Button variant="outline" size="sm" className="h-6 w-6 p-0" onClick={() => setPage((p) => Math.min(data.totalPages, p + 1))} disabled={page === data.totalPages} data-testid="button-next-page">
+                <ChevronRight className="w-3.5 h-3.5" />
               </Button>
             </div>
           </div>
         )}
 
         {aiLeadsMode && aiLeadsData && (
-          <div className="px-4 py-3 border-t flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">
-              Showing top {aiLeadsData.brokers.length} of {aiLeadsData.total.toLocaleString()} eligible candidates
+          <div className="px-3 py-1.5 border-t flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">
+              Top {aiLeadsData.brokers.length} of {aiLeadsData.total.toLocaleString()} eligible
             </span>
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={exitAiLeadsMode}>
-              <X className="w-3.5 h-3.5" />
-              Back to all brokers
+            <Button variant="outline" size="sm" className="h-6 text-xs gap-1" onClick={exitAiLeadsMode}>
+              <X className="w-3 h-3" /> Back
             </Button>
           </div>
         )}
