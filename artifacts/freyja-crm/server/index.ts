@@ -111,6 +111,27 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
+  async function backfillOutreachLog() {
+    await db.execute(sql`UPDATE outreach_log SET status = 'contacted' WHERE status = 'sent'`);
+    await db.execute(sql`
+      INSERT INTO outreach_log (broker_id, outreach_type, message_template_used, status, notes, created_at)
+      SELECT em.entity_id, 'email', em.subject, 'contacted',
+        'Sequence "' || COALESCE(oe.sequence_id::text,'?') || '" step ' || COALESCE(oe.current_step::text,'1') || ' — ' || COALESCE(em.provider_message_id,''),
+        COALESCE(em.sent_at, em.created_at)
+      FROM email_messages em
+      LEFT JOIN outreach_enrollments oe ON oe.id = em.enrollment_id
+      WHERE em.send_status IN ('sent', 'failed')
+        AND em.entity_id > 0
+        AND em.provider_message_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM outreach_log ol
+          WHERE ol.broker_id = em.entity_id
+            AND ol.outreach_type = 'email'
+            AND ol.notes LIKE '%' || em.provider_message_id
+        )
+    `);
+  }
+
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
     {
@@ -135,25 +156,7 @@ app.use((req, res, next) => {
             });
             log(`[Startup] Created default sender inbox: ${fromName} <${fromEmail}>`);
           }
-          await db.execute(sql`UPDATE outreach_log SET status = 'contacted' WHERE status = 'sent'`);
-          await db.execute(sql`
-            INSERT INTO outreach_log (broker_id, outreach_type, message_template_used, status, notes, created_at)
-            SELECT em.entity_id, 'email', em.subject, 'contacted',
-              'Sequence "' || COALESCE(oe.sequence_id::text,'?') || '" step ' || COALESCE(oe.current_step::text,'1') || ' — ' || COALESCE(em.provider_message_id,''),
-              em.sent_at
-            FROM email_messages em
-            LEFT JOIN outreach_enrollments oe ON oe.id = em.enrollment_id
-            WHERE em.send_status = 'sent'
-              AND em.entity_id > 0
-              AND em.sent_at IS NOT NULL
-              AND em.provider_message_id IS NOT NULL
-              AND NOT EXISTS (
-                SELECT 1 FROM outreach_log ol
-                WHERE ol.broker_id = em.entity_id
-                  AND ol.outreach_type = 'email'
-                  AND ol.notes LIKE '%' || em.provider_message_id
-              )
-          `);
+          await backfillOutreachLog();
           log(`[Startup] Backfilled outreach_log from email_messages`);
         } catch (err: any) {
           log(`[Startup] Startup setup error: ${err.message}`);
@@ -179,6 +182,7 @@ app.use((req, res, next) => {
           try {
             const result = await sendDueEmails(undefined, 1);
             log(`[AutoSend] ${ts} — sent: ${result.sent}, errors: ${result.errors}, skipped: ${result.skipped}`);
+            await backfillOutreachLog();
             if (result.details.length > 0) {
               for (const d of result.details) {
                 log(`[AutoSend]   enrollment=${d.enrollmentId} status=${d.status}${d.error ? ` error=${d.error}` : ""}`);
