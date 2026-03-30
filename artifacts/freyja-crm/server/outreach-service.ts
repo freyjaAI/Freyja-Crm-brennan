@@ -8,6 +8,7 @@ import {
   outreachEvents,
   emailMessages,
   outreachSuppressions,
+  outreachLog,
   brokers,
   type OutreachSequence,
   type OutreachSequenceStep,
@@ -421,6 +422,15 @@ export async function sendDueEmails(now?: string, maxSend?: number): Promise<{
             provider_message_id: result.providerMessageId,
           },
           created_by: "system",
+        });
+
+        await db.insert(outreachLog).values({
+          broker_id: entity.id,
+          outreach_type: "email",
+          message_template_used: subject,
+          status: "sent",
+          notes: `Sequence "${enrollment.sequence_id}" step ${step.step_number} — ${result.providerMessageId ?? ""}`,
+          created_at: nowISO(),
         });
 
         sentCount++;
