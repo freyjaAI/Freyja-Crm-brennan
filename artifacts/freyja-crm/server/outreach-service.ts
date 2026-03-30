@@ -251,7 +251,7 @@ export async function getDueSequenceSteps(now?: string): Promise<{
   const dueEnrollments = await db.select().from(outreachEnrollments)
     .where(and(
       eq(outreachEnrollments.status, "active"),
-      lte(outreachEnrollments.next_send_at, cutoff),
+      sql`${outreachEnrollments.next_send_at}::timestamptz <= ${cutoff}::timestamptz`,
       eq(outreachEnrollments.entity_type, "broker"),
     ))
     .orderBy(asc(outreachEnrollments.next_send_at))
