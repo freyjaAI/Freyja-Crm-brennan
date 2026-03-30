@@ -257,6 +257,10 @@ export async function getDueSequenceSteps(now?: string): Promise<{
   const cutoff = now || nowISO();
   const todayStart = cutoff.slice(0, 10) + "T00:00:00.000Z";
 
+  const totalActive = await db.select({ cnt: sql<number>`count(*)` }).from(outreachEnrollments)
+    .where(eq(outreachEnrollments.status, "active"));
+  console.log(`[getDueSequenceSteps] Active enrollments total: ${totalActive[0]?.cnt ?? 0}, cutoff: ${cutoff}`);
+
   const dueEnrollments = await db.select().from(outreachEnrollments)
     .where(and(
       eq(outreachEnrollments.status, "active"),
@@ -265,6 +269,8 @@ export async function getDueSequenceSteps(now?: string): Promise<{
     ))
     .orderBy(asc(outreachEnrollments.next_send_at))
     .limit(200);
+
+  console.log(`[getDueSequenceSteps] Due enrollments found: ${dueEnrollments.length}`);
 
   const due: Array<{ enrollment: OutreachEnrollment; step: OutreachSequenceStep; entity: Broker; inbox: SenderInbox | null }> = [];
   const skipped: Array<{ enrollmentId: number; reason: string }> = [];
@@ -501,6 +507,50 @@ export async function processReplyWebhook(payload: {
   return { processed: true };
 }
 
+export async function resolveEntityFromWebhook(providerMessageId?: string, recipientEmail?: string): Promise<{
+  entityId: number;
+  enrollment?: OutreachEnrollment;
+  resolvedEmail?: string;
+  matchedMessage: boolean;
+}> {
+  let entityId = 0;
+  let enrollment: OutreachEnrollment | undefined;
+  let resolvedEmail = recipientEmail;
+  let matchedMessage = false;
+
+  if (providerMessageId) {
+    const msgRows = await db.select().from(emailMessages)
+      .where(eq(emailMessages.provider_message_id, providerMessageId)).limit(1);
+    if (msgRows.length > 0) {
+      matchedMessage = true;
+      entityId = msgRows[0].entity_id;
+      if (msgRows[0].enrollment_id) {
+        const enrollRows = await db.select().from(outreachEnrollments)
+          .where(eq(outreachEnrollments.id, msgRows[0].enrollment_id)).limit(1);
+        enrollment = enrollRows[0];
+      }
+      if (!resolvedEmail) {
+        const brokerRows = await db.select().from(brokers)
+          .where(eq(brokers.id, msgRows[0].entity_id)).limit(1);
+        resolvedEmail = brokerRows[0]?.email ?? undefined;
+      }
+    }
+  }
+
+  if (!matchedMessage && resolvedEmail) {
+    const brokerRows = await db.select().from(brokers)
+      .where(eq(brokers.email, resolvedEmail)).limit(1);
+    if (brokerRows.length > 0) {
+      entityId = brokerRows[0].id;
+      console.log(`[Webhook] Resolved broker #${entityId} (${brokerRows[0].full_name}) by email fallback`);
+    } else {
+      console.log(`[Webhook] Could not resolve broker for email=${resolvedEmail}, providerMessageId=${providerMessageId}`);
+    }
+  }
+
+  return { entityId, enrollment, resolvedEmail, matchedMessage };
+}
+
 export async function processBounceWebhook(payload: {
   providerMessageId?: string;
   email?: string;
@@ -513,25 +563,9 @@ export async function processBounceWebhook(payload: {
     }).where(eq(emailMessages.provider_message_id, payload.providerMessageId));
   }
 
-  let enrollment: OutreachEnrollment | undefined;
-  let resolvedEmail = payload.email;
-  let resolvedEntityId: number | undefined;
-
-  if (payload.providerMessageId) {
-    const msgRows = await db.select().from(emailMessages).where(eq(emailMessages.provider_message_id, payload.providerMessageId)).limit(1);
-    if (msgRows.length > 0) {
-      resolvedEntityId = msgRows[0].entity_id;
-      if (msgRows[0].enrollment_id) {
-        const enrollRows = await db.select().from(outreachEnrollments).where(eq(outreachEnrollments.id, msgRows[0].enrollment_id)).limit(1);
-        enrollment = enrollRows[0];
-      }
-      if (!resolvedEmail) {
-        const brokerRows = await db.select().from(brokers).where(eq(brokers.id, msgRows[0].entity_id)).limit(1);
-        resolvedEmail = brokerRows[0]?.email ?? undefined;
-        resolvedEntityId = brokerRows[0]?.id;
-      }
-    }
-  }
+  const { entityId, enrollment, resolvedEmail } = await resolveEntityFromWebhook(
+    payload.providerMessageId, payload.email
+  );
 
   if (payload.bounceType === "hard") {
     if (enrollment) {
@@ -539,12 +573,12 @@ export async function processBounceWebhook(payload: {
     }
 
     if (resolvedEmail) {
-      await suppressEmail(resolvedEmail, "bounce_hard", "provider", resolvedEntityId);
+      await suppressEmail(resolvedEmail, "bounce_hard", "provider", entityId || undefined);
     }
   }
 
   await logEvent({
-    entity_id: enrollment?.entity_id ?? resolvedEntityId ?? 0,
+    entity_id: entityId,
     entity_type: (enrollment?.entity_type ?? "broker") as any,
     channel: "email",
     event_type: "email_bounced",
@@ -746,9 +780,10 @@ export async function getOutreachDiagnostics(): Promise<{
   }).from(emailMessages)
     .where(and(
       eq(emailMessages.send_status, "sent"),
+      sql`${emailMessages.provider_message_id} IS NOT NULL`,
       sql`NOT EXISTS (
         SELECT 1 FROM outreach_events oe
-        WHERE oe.event_type IN ('email_opened', 'email_clicked', 'email_bounced')
+        WHERE oe.event_type IN ('email_delivered', 'email_opened', 'email_clicked', 'email_bounced')
         AND (oe.metadata_json->>'provider_message_id') = ${emailMessages.provider_message_id}
       )`,
     ))

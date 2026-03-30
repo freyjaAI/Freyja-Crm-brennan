@@ -230,53 +230,53 @@ export async function registerRoutes(
           email: recipientEmail,
           bounceType: isSoft ? "soft" : "hard",
         });
-      } else if (eventType === "email.complained") {
-        if (recipientEmail) {
-          await outreachService.processUnsubscribe({ email: recipientEmail });
-        } else if (resendEmailId) {
-          const msgRows = await db.select().from(emailMessages).where(eq(emailMessages.provider_message_id, resendEmailId)).limit(1);
-          if (msgRows.length > 0) {
-            const brokerRows = await db.select().from(brokers).where(eq(brokers.id, msgRows[0].entity_id)).limit(1);
-            if (brokerRows[0]?.email) {
-              await outreachService.processUnsubscribe({ email: brokerRows[0].email, entityId: brokerRows[0].id });
-            }
-          }
+        res.json({ received: true });
+        return;
+      }
+
+      const resolved = await outreachService.resolveEntityFromWebhook(resendEmailId, recipientEmail);
+
+      if (eventType === "email.complained") {
+        const email = recipientEmail || resolved.resolvedEmail;
+        if (email) {
+          await outreachService.processUnsubscribe({ email, entityId: resolved.entityId || undefined });
         }
       } else if (eventType === "email.delivered") {
         if (resendEmailId) {
           await db.update(emailMessages).set({ send_status: "sent" })
             .where(and(eq(emailMessages.provider_message_id, resendEmailId), eq(emailMessages.send_status, "sending")));
         }
+        if (resolved.entityId) {
+          await db.insert(outreachEvents).values({
+            entity_id: resolved.entityId,
+            entity_type: "broker",
+            channel: "email",
+            event_type: "email_delivered",
+            metadata_json: { provider_message_id: resendEmailId, email: recipientEmail },
+            created_by: "system",
+            created_at: new Date().toISOString(),
+          });
+        }
       } else if (eventType === "email.opened") {
-        if (resendEmailId) {
-          const msgRows = await db.select().from(emailMessages).where(eq(emailMessages.provider_message_id, resendEmailId)).limit(1);
-          if (msgRows.length > 0) {
-            await db.insert(outreachEvents).values({
-              entity_id: msgRows[0].entity_id,
-              entity_type: "broker",
-              channel: "email",
-              event_type: "email_opened",
-              metadata_json: { provider_message_id: resendEmailId },
-              created_by: "system",
-              created_at: new Date().toISOString(),
-            });
-          }
-        }
+        await db.insert(outreachEvents).values({
+          entity_id: resolved.entityId,
+          entity_type: "broker",
+          channel: "email",
+          event_type: "email_opened",
+          metadata_json: { provider_message_id: resendEmailId, email: recipientEmail },
+          created_by: "system",
+          created_at: new Date().toISOString(),
+        });
       } else if (eventType === "email.clicked") {
-        if (resendEmailId) {
-          const msgRows = await db.select().from(emailMessages).where(eq(emailMessages.provider_message_id, resendEmailId)).limit(1);
-          if (msgRows.length > 0) {
-            await db.insert(outreachEvents).values({
-              entity_id: msgRows[0].entity_id,
-              entity_type: "broker",
-              channel: "email",
-              event_type: "email_clicked",
-              metadata_json: { provider_message_id: resendEmailId, url: data.click?.url },
-              created_by: "system",
-              created_at: new Date().toISOString(),
-            });
-          }
-        }
+        await db.insert(outreachEvents).values({
+          entity_id: resolved.entityId,
+          entity_type: "broker",
+          channel: "email",
+          event_type: "email_clicked",
+          metadata_json: { provider_message_id: resendEmailId, url: data.click?.url, email: recipientEmail },
+          created_by: "system",
+          created_at: new Date().toISOString(),
+        });
       }
 
       res.json({ received: true });
