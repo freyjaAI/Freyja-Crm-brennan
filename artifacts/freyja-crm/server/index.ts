@@ -6,6 +6,9 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initResendEmailService, getEmailService } from "./email-service";
 import { sendDueEmails } from "./outreach-service";
+import { db } from "./storage";
+import { senderInboxes } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -117,6 +120,26 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      (async () => {
+        try {
+          const existingInboxes = await db.select().from(senderInboxes).limit(1);
+          if (existingInboxes.length === 0) {
+            const fromEmail = process.env.RESEND_FROM_EMAIL || "admin@freyjaiq.com";
+            const fromName = process.env.RESEND_FROM_NAME || "Freyja IQ";
+            await db.insert(senderInboxes).values({
+              label: `${fromName} Primary`,
+              email_address: fromEmail,
+              daily_limit: 48,
+              active: true,
+              created_at: new Date().toISOString(),
+            });
+            log(`[Startup] Created default sender inbox: ${fromName} <${fromEmail}>`);
+          }
+        } catch (err: any) {
+          log(`[Startup] Sender inbox check error: ${err.message}`);
+        }
+      })();
 
       const enableAutoSend =
         process.env.NODE_ENV === "production" ||

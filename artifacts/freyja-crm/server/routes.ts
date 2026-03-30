@@ -1053,11 +1053,11 @@ export async function registerRoutes(
 
   app.post("/api/outreach/sender-inboxes", async (req, res) => {
     try {
-      const { emailAddress, displayName, dailyLimit } = req.body;
+      const { emailAddress, displayName, dailyLimit, label } = req.body;
       if (!emailAddress) return res.status(400).json({ error: "emailAddress required" });
       const rows = await db.insert(senderInboxes).values({
+        label: label || displayName || emailAddress,
         email_address: emailAddress,
-        display_name: displayName || null,
         daily_limit: dailyLimit || 48,
         active: true,
         created_at: new Date().toISOString(),
