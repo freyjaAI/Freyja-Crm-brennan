@@ -5,6 +5,7 @@ import { registerAuthRoutes } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { initResendEmailService, getEmailService } from "./email-service";
+import { sendDueEmails } from "./outreach-service";
 
 const app = express();
 const httpServer = createServer(app);
@@ -116,6 +117,35 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      const enableAutoSend =
+        process.env.NODE_ENV === "production" ||
+        process.env.ENABLE_AUTO_SEND === "true";
+
+      if (enableAutoSend) {
+        const FIVE_MINUTES = 5 * 60 * 1000;
+        let cronRunning = false;
+        log("[AutoSend] Cron enabled — running every 5 minutes");
+
+        setInterval(async () => {
+          if (cronRunning) {
+            log("[AutoSend] Previous run still in progress — skipping");
+            return;
+          }
+          cronRunning = true;
+          const ts = new Date().toISOString();
+          try {
+            const result = await sendDueEmails();
+            log(`[AutoSend] ${ts} — sent: ${result.sent}, errors: ${result.errors}, skipped: ${result.skipped}`);
+          } catch (err: any) {
+            log(`[AutoSend] ${ts} — cron error: ${err.message}`);
+          } finally {
+            cronRunning = false;
+          }
+        }, FIVE_MINUTES);
+      } else {
+        log("[AutoSend] Cron disabled — set NODE_ENV=production or ENABLE_AUTO_SEND=true to enable");
+      }
     },
   );
 })();
