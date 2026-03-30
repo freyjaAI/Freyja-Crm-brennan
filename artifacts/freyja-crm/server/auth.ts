@@ -21,7 +21,13 @@ export function registerAuthRoutes(app: import("express").Express) {
     const { email, password } = req.body;
     if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
       req.session.authenticated = true;
-      res.json({ ok: true });
+      req.session.save((err) => {
+        if (err) {
+          console.error("[Auth] Session save error:", err);
+          return res.status(500).json({ error: "Session error" });
+        }
+        res.json({ ok: true });
+      });
     } else {
       res.status(401).json({ error: "Invalid email or password" });
     }

@@ -86,6 +86,8 @@ export default function OutreachPage() {
       const res = await apiRequest("GET", `/api/outreach-log?${buildParams()}`);
       return res.json();
     },
+    retry: 2,
+    staleTime: 30_000,
   });
 
   const { data: stats } = useQuery<OutreachStats>({
@@ -94,6 +96,8 @@ export default function OutreachPage() {
       const res = await apiRequest("GET", "/api/outreach-log/stats");
       return res.json();
     },
+    retry: 2,
+    staleTime: 30_000,
   });
 
   const updateMutation = useMutation({
