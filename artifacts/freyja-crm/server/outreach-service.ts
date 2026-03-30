@@ -109,7 +109,8 @@ export async function enrollEntityInSequence(
   sequenceId: number,
   entityId: number,
   entityType: string,
-  inboxId?: number
+  inboxId?: number,
+  priority?: number,
 ): Promise<{ enrollment?: OutreachEnrollment; error?: string }> {
   const sequence = await getSequence(sequenceId);
   if (!sequence) return { error: "Sequence not found" };
@@ -148,6 +149,7 @@ export async function enrollEntityInSequence(
     entity_id: entityId,
     entity_type: entityType,
     inbox_id: inboxId ?? null,
+    priority: priority ?? 0,
     status: "active",
     current_step: 1,
     next_send_at: nextSendAt,
@@ -268,7 +270,7 @@ export async function getDueSequenceSteps(now?: string): Promise<{
       sql`${outreachEnrollments.next_send_at}::timestamptz <= ${cutoff}::timestamptz`,
       eq(outreachEnrollments.entity_type, "broker"),
     ))
-    .orderBy(asc(outreachEnrollments.next_send_at))
+    .orderBy(desc(outreachEnrollments.priority), asc(outreachEnrollments.next_send_at))
     .limit(200);
 
   console.log(`[getDueSequenceSteps] Due enrollments found: ${dueEnrollments.length}`);

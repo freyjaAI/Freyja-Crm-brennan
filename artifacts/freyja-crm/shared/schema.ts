@@ -306,6 +306,7 @@ export const outreachEnrollments = pgTable("outreach_enrollments", {
   entity_id: integer("entity_id").notNull(),
   entity_type: text("entity_type").notNull().default("broker"),
   inbox_id: integer("inbox_id"),
+  priority: integer("priority").notNull().default(0),
   status: text("status").notNull().default("active"),
   current_step: integer("current_step").notNull().default(1),
   next_send_at: text("next_send_at"),
@@ -318,6 +319,7 @@ export const outreachEnrollments = pgTable("outreach_enrollments", {
   index("idx_enrollments_entity").on(table.entity_id, table.entity_type),
   index("idx_enrollments_next_send").on(table.next_send_at),
   index("idx_enrollments_status").on(table.status),
+  index("idx_enrollments_priority").on(table.priority),
 ]);
 
 export const insertOutreachEnrollmentSchema = z.object({
@@ -325,6 +327,7 @@ export const insertOutreachEnrollmentSchema = z.object({
   entity_id: z.number().int(),
   entity_type: z.enum(targetEntityTypeEnum).default("broker"),
   inbox_id: z.number().int().optional().nullable(),
+  priority: z.number().int().min(0).max(10).default(0),
   status: z.enum(enrollmentStatusEnum).default("active"),
   current_step: z.number().int().min(1).default(1),
   next_send_at: z.string().optional().nullable(),
@@ -332,6 +335,7 @@ export const insertOutreachEnrollmentSchema = z.object({
 
 export const updateOutreachEnrollmentSchema = z.object({
   inbox_id: z.number().int().optional().nullable(),
+  priority: z.number().int().min(0).max(10).optional(),
   status: z.enum(enrollmentStatusEnum).optional(),
   current_step: z.number().int().min(1).optional(),
   next_send_at: z.string().optional().nullable(),

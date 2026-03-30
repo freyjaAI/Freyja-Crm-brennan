@@ -485,6 +485,7 @@ export class DatabaseStorage implements IStorage {
     const rows = await db.select({
       id: outreachEnrollments.id,
       entity_id: outreachEnrollments.entity_id,
+      priority: outreachEnrollments.priority,
       status: outreachEnrollments.status,
       current_step: outreachEnrollments.current_step,
       next_send_at: outreachEnrollments.next_send_at,
@@ -497,7 +498,7 @@ export class DatabaseStorage implements IStorage {
       .from(outreachEnrollments)
       .leftJoin(brokers, eq(outreachEnrollments.entity_id, brokers.id))
       .where(eq(outreachEnrollments.sequence_id, sequenceId))
-      .orderBy(desc(outreachEnrollments.created_at));
+      .orderBy(desc(outreachEnrollments.priority), asc(outreachEnrollments.next_send_at));
     return rows;
   }
 

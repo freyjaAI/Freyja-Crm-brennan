@@ -1033,7 +1033,7 @@ export async function registerRoutes(
 
   app.post("/api/outreach/enroll", async (req, res) => {
     try {
-      const { sequenceId, entityId, entityType, inboxId } = req.body;
+      const { sequenceId, entityId, entityType, inboxId, priority } = req.body;
       if (!sequenceId || !entityId) return res.status(400).json({ error: "sequenceId and entityId are required" });
 
       const result = await outreachService.enrollEntityInSequence(
@@ -1041,6 +1041,7 @@ export async function registerRoutes(
         Number(entityId),
         entityType || "broker",
         inboxId ? Number(inboxId) : undefined,
+        priority != null ? Number(priority) : undefined,
       );
 
       if (result.error) return res.status(400).json({ error: result.error });
@@ -1052,18 +1053,19 @@ export async function registerRoutes(
 
   app.post("/api/outreach/bulk-enroll", async (req, res) => {
     try {
-      const { sequenceId, entityIds, entityType, inboxId, staggerMinutes } = req.body;
+      const { sequenceId, entityIds, entityType, inboxId, staggerMinutes, priority } = req.body;
       if (!sequenceId || !entityIds || !Array.isArray(entityIds)) {
         return res.status(400).json({ error: "sequenceId and entityIds[] required" });
       }
       const results: Array<{ entityId: number; status: string; error?: string }> = [];
       const stagger = (staggerMinutes || 30) * 60 * 1000;
+      const enrollPriority = priority != null ? Number(priority) : 0;
       let enrolled = 0;
 
       for (let i = 0; i < entityIds.length; i++) {
         const eid = Number(entityIds[i]);
         const result = await outreachService.enrollEntityInSequence(
-          Number(sequenceId), eid, entityType || "broker", inboxId ? Number(inboxId) : undefined
+          Number(sequenceId), eid, entityType || "broker", inboxId ? Number(inboxId) : undefined, enrollPriority
         );
         if (result.error) {
           results.push({ entityId: eid, status: "error", error: result.error });
@@ -1176,6 +1178,23 @@ export async function registerRoutes(
     try {
       const rows = await db.select().from(outreachSuppressions).orderBy(sql`created_at DESC`).limit(500);
       res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/outreach/enrollments/:id/priority", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: "Invalid enrollment id" });
+      const { priority } = req.body;
+      if (priority == null || priority < 0 || priority > 10) return res.status(400).json({ error: "Priority must be 0-10" });
+      const [updated] = await db.update(outreachEnrollments)
+        .set({ priority: Number(priority), updated_at: new Date().toISOString() })
+        .where(eq(outreachEnrollments.id, id))
+        .returning();
+      if (!updated) return res.status(404).json({ error: "Enrollment not found" });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

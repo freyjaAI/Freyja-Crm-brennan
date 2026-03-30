@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import type { Broker, OutreachStatus, FilterPreset } from "@shared/schema";
 import { outreachStatusEnum } from "@shared/schema";
 import { BrokerDetail } from "@/components/BrokerDetail";
+import { EnrollModal } from "@/components/EnrollModal";
 import {
   Table,
   TableBody,
@@ -279,6 +280,7 @@ export default function Brokers() {
   const [batchRunning, setBatchRunning] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
+  const [enrollModalOpen, setEnrollModalOpen] = useState(false);
   const [aiLeadsMode, setAiLeadsMode] = useState(false);
   const [aiLeadsData, setAiLeadsData] = useState<{ brokers: (Broker & { lead_score: number })[]; total: number } | null>(null);
   const [aiLeadsLoading, setAiLeadsLoading] = useState(false);
@@ -877,6 +879,9 @@ export default function Brokers() {
           {selectedIds.size > 0 && (
             <div className="flex items-center gap-2 p-1.5 bg-muted rounded text-xs">
               <span className="font-medium">{selectedIds.size} selected</span>
+              <Button variant="default" size="sm" className="h-6 text-xs gap-1" onClick={() => setEnrollModalOpen(true)}>
+                <Mail className="w-3 h-3" /> Enroll in Sequence
+              </Button>
               <Select onValueChange={(v) => bulkMutation.mutate(v as OutreachStatus)}>
                 <SelectTrigger className="w-[130px] h-6 text-xs" data-testid="select-bulk-status">
                   <SelectValue placeholder="Set status..." />
@@ -1178,6 +1183,15 @@ export default function Brokers() {
           )}
         </DialogContent>
       </Dialog>
+
+      <EnrollModal
+        open={enrollModalOpen}
+        onClose={() => { setEnrollModalOpen(false); setSelectedIds(new Set()); }}
+        entityIds={Array.from(selectedIds)}
+        entityType="broker"
+        entityName={`${selectedIds.size} brokers`}
+        mode="bulk"
+      />
     </div>
   );
 }

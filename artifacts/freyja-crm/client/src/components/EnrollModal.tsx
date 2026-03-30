@@ -17,17 +17,26 @@ const STEP_ICONS: Record<string, React.ReactNode> = {
   manual_task: <ClipboardList className="w-3.5 h-3.5 text-orange-500" />,
 };
 
+const PRIORITY_OPTIONS = [
+  { value: "0", label: "Normal", color: "bg-muted text-muted-foreground" },
+  { value: "5", label: "High", color: "bg-amber-100 text-amber-700" },
+  { value: "10", label: "Urgent", color: "bg-red-100 text-red-700" },
+];
+
 interface Props {
   open: boolean;
   onClose: () => void;
-  entityId: number;
+  entityId?: number;
+  entityIds?: number[];
   entityType: string;
   entityName: string;
+  mode?: "single" | "bulk";
 }
 
-export function EnrollModal({ open, onClose, entityId, entityType, entityName }: Props) {
+export function EnrollModal({ open, onClose, entityId, entityIds, entityType, entityName, mode = "single" }: Props) {
   const { toast } = useToast();
   const [selectedSeqId, setSelectedSeqId] = useState<string>("");
+  const [priority, setPriority] = useState<string>("0");
 
   const { data: sequences } = useQuery<SequenceWithSteps[]>({
     queryKey: ["/api/outreach/sequences"],
@@ -36,28 +45,46 @@ export function EnrollModal({ open, onClose, entityId, entityType, entityName }:
 
   const enrollMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/outreach/enroll", {
-        sequenceId: Number(selectedSeqId),
-        entityId,
-        entityType,
-      });
-      return res.json();
+      if (mode === "bulk" && entityIds && entityIds.length > 0) {
+        const res = await apiRequest("POST", "/api/outreach/bulk-enroll", {
+          sequenceId: Number(selectedSeqId),
+          entityIds,
+          entityType,
+          priority: Number(priority),
+        });
+        return res.json();
+      } else {
+        const res = await apiRequest("POST", "/api/outreach/enroll", {
+          sequenceId: Number(selectedSeqId),
+          entityId,
+          entityType,
+          priority: Number(priority),
+        });
+        return res.json();
+      }
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/outreach/timeline"] });
       queryClient.invalidateQueries({ queryKey: ["/api/outreach/enrollments"] });
-      toast({ title: "Enrolled successfully", description: `${entityName} added to sequence` });
+      queryClient.invalidateQueries({ queryKey: ["/api/outreach/sequences"] });
+      if (mode === "bulk") {
+        toast({ title: "Bulk enrollment complete", description: `Enrolled: ${data.enrolled}, Errors: ${data.errors}` });
+      } else {
+        toast({ title: "Enrolled successfully", description: `${entityName} added to sequence` });
+      }
       onClose();
       setSelectedSeqId("");
+      setPriority("0");
     },
     onError: (e: Error) => toast({ title: "Enrollment failed", description: e.message, variant: "destructive" }),
   });
 
   const activeSeqs = sequences?.filter(s => s.active && s.steps?.length > 0) ?? [];
   const selected = activeSeqs.find(s => s.id === Number(selectedSeqId));
+  const count = mode === "bulk" ? (entityIds?.length ?? 0) : 1;
 
   return (
-    <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
+    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); setSelectedSeqId(""); setPriority("0"); } }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -67,7 +94,11 @@ export function EnrollModal({ open, onClose, entityId, entityType, entityName }:
 
         <div className="space-y-4 py-2">
           <div className="text-sm">
-            Enrolling <span className="font-semibold">{entityName}</span> in an automated outreach sequence.
+            {mode === "bulk" ? (
+              <>Enrolling <span className="font-semibold">{count} brokers</span> in an automated outreach sequence.</>
+            ) : (
+              <>Enrolling <span className="font-semibold">{entityName}</span> in an automated outreach sequence.</>
+            )}
           </div>
 
           {activeSeqs.length === 0 ? (
@@ -91,6 +122,28 @@ export function EnrollModal({ open, onClose, entityId, entityType, entityName }:
                 </Select>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Priority</label>
+                <div className="flex gap-2">
+                  {PRIORITY_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setPriority(opt.value)}
+                      className={`flex-1 py-1.5 px-2 rounded-md text-xs font-medium border-2 transition-all ${
+                        priority === opt.value
+                          ? `${opt.color} border-current`
+                          : "bg-background text-muted-foreground border-border hover:border-muted-foreground/30"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {priority === "10" ? "Sent before all other enrollments" : priority === "5" ? "Sent before normal priority" : "Standard queue order"}
+                </p>
+              </div>
+
               {selected && (
                 <div className="p-3 rounded-lg border space-y-2">
                   <p className="text-xs font-medium text-muted-foreground">Sequence preview</p>
@@ -109,9 +162,9 @@ export function EnrollModal({ open, onClose, entityId, entityType, entityName }:
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={() => { onClose(); setSelectedSeqId(""); setPriority("0"); }}>Cancel</Button>
           <Button onClick={() => enrollMutation.mutate()} disabled={!selectedSeqId || enrollMutation.isPending}>
-            {enrollMutation.isPending ? "Enrolling..." : "Enroll"}
+            {enrollMutation.isPending ? "Enrolling..." : mode === "bulk" ? `Enroll ${count} Brokers` : "Enroll"}
           </Button>
         </DialogFooter>
       </DialogContent>

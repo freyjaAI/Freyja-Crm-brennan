@@ -93,7 +93,7 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - `sender_inboxes`: sending accounts with provider, warmup status, daily limits
   - `outreach_sequences`: named multi-step outreach sequences (email/linkedin/multi channel)
   - `outreach_sequence_steps`: step definitions with subject/body templates, delay, stop-on-reply
-  - `outreach_enrollments`: entity enrollment in sequences with status tracking, next send time
+  - `outreach_enrollments`: entity enrollment in sequences with status tracking, next send time, priority (0=Normal, 5=High, 10=Urgent; indexed by `idx_enrollments_priority`)
   - `outreach_events`: timeline events (sent, opened, clicked, replied, bounced, etc.)
   - `email_messages`: individual email records with send status, reply/bounce tracking
   - `outreach_suppressions`: email suppression list (bounces, unsubscribes, spam complaints)
@@ -113,8 +113,8 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
   - `resend` added to esbuild allowlist in `script/build.ts`
 - **Email outreach backend services** (`server/outreach-service.ts`, `server/email-service.ts`):
   - `IEmailService` interface with `ConsoleEmailService` (dev fallback) and `ResendEmailService` (live) — pluggable provider abstraction
-  - `enrollEntityInSequence()` — validates sequence, entity email, suppression, duplicate enrollment
-  - `getDueSequenceSteps()` — finds due enrollments with inbox daily limit throttling
+  - `enrollEntityInSequence()` — validates sequence, entity email, suppression, duplicate enrollment; accepts optional `priority` (0=Normal, 5=High, 10=Urgent)
+  - `getDueSequenceSteps()` — finds due enrollments with inbox daily limit throttling; orders by priority DESC, next_send_at ASC
   - `sendDueEmails()` — processes due steps, renders templates, sends via email service, advances enrollment
   - `renderEmailTemplate()` — placeholder substitution (broker_name, first_name, company_name, city, etc.) with safe fallbacks
   - `stopEnrollment()` — transitions to terminal status (replied/bounced/unsubscribed/completed/failed)

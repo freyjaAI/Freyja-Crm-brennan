@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   Plus, Trash2, Mail, Linkedin, ClipboardList, Play, Pause,
   ChevronDown, ChevronUp, ArrowLeft, GripVertical, Zap, Send,
-  Users, Clock,
+  Users, Clock, ArrowUpDown,
 } from "lucide-react";
 
 interface SequenceStats {
@@ -34,6 +34,7 @@ interface SequenceStats {
 interface EnrolledBroker {
   id: number;
   entity_id: number;
+  priority: number;
   status: string;
   current_step: number;
   next_send_at: string | null;
@@ -74,6 +75,50 @@ interface StepDraft {
 
 function emptyStep(n: number): StepDraft {
   return { step_number: n, step_type: "email", subject_template: "", body_template: "", delay_days: n === 1 ? 0 : 3, stop_on_reply: true };
+}
+
+const PRIORITY_LABELS: Record<number, { label: string; class: string }> = {
+  0: { label: "Normal", class: "bg-muted text-muted-foreground" },
+  5: { label: "High", class: "bg-amber-100 text-amber-700" },
+  10: { label: "Urgent", class: "bg-red-100 text-red-700" },
+};
+
+function getPriorityDisplay(p: number) {
+  if (p >= 10) return PRIORITY_LABELS[10];
+  if (p >= 5) return PRIORITY_LABELS[5];
+  return PRIORITY_LABELS[0];
+}
+
+function PriorityInlineEdit({ enrollmentId, currentPriority, sequenceId, disabled }: { enrollmentId: number; currentPriority: number; sequenceId: number; disabled?: boolean }) {
+  const { toast } = useToast();
+  const display = getPriorityDisplay(currentPriority);
+  const mutation = useMutation({
+    mutationFn: async (newPriority: number) => {
+      const res = await apiRequest("PATCH", `/api/outreach/enrollments/${enrollmentId}/priority`, { priority: newPriority });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/outreach/sequences", sequenceId, "enrollments"] });
+    },
+    onError: (e: Error) => toast({ title: "Failed to update priority", description: e.message, variant: "destructive" }),
+  });
+
+  if (disabled) {
+    return <Badge className={`text-[8px] px-1 py-0 border-0 ${display.class}`}>{display.label}</Badge>;
+  }
+
+  return (
+    <Select value={String(currentPriority)} onValueChange={(v) => mutation.mutate(Number(v))}>
+      <SelectTrigger className="h-5 w-[70px] text-[9px] px-1 border-0 bg-transparent">
+        <Badge className={`text-[8px] px-1 py-0 border-0 ${display.class}`}>{display.label}</Badge>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="0"><span className="text-xs">Normal</span></SelectItem>
+        <SelectItem value="5"><span className="text-xs">High</span></SelectItem>
+        <SelectItem value="10"><span className="text-xs">Urgent</span></SelectItem>
+      </SelectContent>
+    </Select>
+  );
 }
 
 export default function SequencesPage() {
@@ -407,6 +452,9 @@ export default function SequencesPage() {
                               <TableHead className="text-[10px] font-medium px-2">Broker</TableHead>
                               <TableHead className="text-[10px] font-medium px-2">Email</TableHead>
                               <TableHead className="text-[10px] font-medium px-2 w-12">State</TableHead>
+                              <TableHead className="text-[10px] font-medium px-2 w-16">
+                                <div className="flex items-center gap-0.5"><ArrowUpDown className="w-2.5 h-2.5" /> Priority</div>
+                              </TableHead>
                               <TableHead className="text-[10px] font-medium px-2 w-20">Status</TableHead>
                               <TableHead className="text-[10px] font-medium px-2 w-12">Step</TableHead>
                               <TableHead className="text-[10px] font-medium px-2 w-20">
@@ -421,6 +469,9 @@ export default function SequencesPage() {
                                 <TableCell className="text-[11px] font-medium px-2 py-1 truncate max-w-[120px]">{e.broker_name || `#${e.entity_id}`}</TableCell>
                                 <TableCell className="text-[10px] text-muted-foreground px-2 py-1 truncate max-w-[150px]">{e.broker_email || "\u2014"}</TableCell>
                                 <TableCell className="text-[10px] text-muted-foreground px-2 py-1">{e.broker_state || "\u2014"}</TableCell>
+                                <TableCell className="px-2 py-1">
+                                  <PriorityInlineEdit enrollmentId={e.id} currentPriority={e.priority ?? 0} sequenceId={seq.id} disabled={e.status !== "active"} />
+                                </TableCell>
                                 <TableCell className="px-2 py-1">
                                   <Badge className={`text-[8px] px-1 py-0 border-0 ${ENROLLMENT_STATUS_BADGE[e.status] || "bg-muted text-muted-foreground"}`}>
                                     {e.status}
