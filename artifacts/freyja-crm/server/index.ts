@@ -4,10 +4,10 @@ import { registerRoutes } from "./routes";
 import { registerAuthRoutes } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { initResendEmailService, getEmailService } from "./email-service";
+import { initResendEmailService, getEmailService, ResendEmailService } from "./email-service";
 import { sendDueEmails } from "./outreach-service";
 import { db } from "./storage";
-import { senderInboxes, emailMessages, outreachLog } from "@shared/schema";
+import { senderInboxes, emailMessages, outreachLog, brokers } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 
 const app = express();
@@ -111,6 +111,56 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
+  async function reconcileResendEmails() {
+    try {
+      const svc = getEmailService();
+      if (svc.name() !== "resend" || !(svc instanceof ResendEmailService)) return;
+      const resend = svc.getResendClient();
+      const allEmails: any[] = [];
+      let hasMore = true;
+      let page = 1;
+      while (hasMore) {
+        const batch = await resend.emails.list({ page, pageSize: 100 });
+        if (batch.error || !batch.data?.data?.length) {
+          hasMore = false;
+        } else {
+          allEmails.push(...batch.data.data);
+          page++;
+          if (batch.data.data.length < 100) hasMore = false;
+        }
+      }
+      let created = 0;
+      for (const email of allEmails) {
+        const resendId = email.id;
+        if (!resendId) continue;
+        const existing = await db.select({ id: emailMessages.id })
+          .from(emailMessages)
+          .where(eq(emailMessages.provider_message_id, resendId))
+          .limit(1);
+        if (existing.length > 0) continue;
+        const toAddr = Array.isArray(email.to) ? email.to[0] : email.to;
+        const entityRows = toAddr ? await db.select({ id: brokers.id })
+          .from(brokers)
+          .where(eq(brokers.email, toAddr))
+          .limit(1) : [];
+        const entityId = entityRows.length > 0 ? entityRows[0].id : 0;
+        await db.insert(emailMessages).values({
+          entity_id: entityId,
+          subject: email.subject || "(no subject)",
+          body_rendered: "",
+          send_status: "sent",
+          sent_at: email.created_at || new Date().toISOString(),
+          provider_message_id: resendId,
+          created_at: email.created_at || new Date().toISOString(),
+        } as any);
+        created++;
+      }
+      log(`[Startup] Resend reconciliation: ${allEmails.length} on Resend, ${created} new records created`);
+    } catch (err: any) {
+      log(`[Startup] Resend reconciliation error: ${err.message}`);
+    }
+  }
+
   async function backfillOutreachLog() {
     await db.execute(sql`UPDATE outreach_log SET status = 'contacted' WHERE status = 'sent'`);
     await db.execute(sql`
@@ -156,6 +206,7 @@ app.use((req, res, next) => {
             });
             log(`[Startup] Created default sender inbox: ${fromName} <${fromEmail}>`);
           }
+          await reconcileResendEmails();
           await backfillOutreachLog();
           log(`[Startup] Backfilled outreach_log from email_messages`);
         } catch (err: any) {
