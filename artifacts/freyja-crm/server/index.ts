@@ -123,9 +123,9 @@ app.use((req, res, next) => {
         process.env.ENABLE_AUTO_SEND === "true";
 
       if (enableAutoSend) {
-        const FIVE_MINUTES = 5 * 60 * 1000;
+        const THIRTY_MINUTES = 30 * 60 * 1000;
         let cronRunning = false;
-        log("[AutoSend] Cron enabled — running every 5 minutes");
+        log("[AutoSend] Cron enabled — running every 30 minutes, 1 email per run");
 
         setInterval(async () => {
           if (cronRunning) {
@@ -135,14 +135,14 @@ app.use((req, res, next) => {
           cronRunning = true;
           const ts = new Date().toISOString();
           try {
-            const result = await sendDueEmails();
+            const result = await sendDueEmails(undefined, 1);
             log(`[AutoSend] ${ts} — sent: ${result.sent}, errors: ${result.errors}, skipped: ${result.skipped}`);
           } catch (err: any) {
             log(`[AutoSend] ${ts} — cron error: ${err.message}`);
           } finally {
             cronRunning = false;
           }
-        }, FIVE_MINUTES);
+        }, THIRTY_MINUTES);
       } else {
         log("[AutoSend] Cron disabled — set NODE_ENV=production or ENABLE_AUTO_SEND=true to enable");
       }

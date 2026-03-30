@@ -321,7 +321,7 @@ export async function getDueSequenceSteps(now?: string): Promise<{
   return { due, skipped };
 }
 
-export async function sendDueEmails(now?: string): Promise<{
+export async function sendDueEmails(now?: string, maxSend?: number): Promise<{
   sent: number;
   skipped: number;
   errors: number;
@@ -337,8 +337,10 @@ export async function sendDueEmails(now?: string): Promise<{
   }
 
   const emailService = getEmailService();
+  const limit = maxSend != null ? maxSend : Infinity;
 
   for (const item of due) {
+    if (sentCount >= limit) break;
     const { enrollment, step, entity, inbox } = item;
 
     try {

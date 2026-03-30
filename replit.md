@@ -138,8 +138,8 @@ Pre-built Freyja IQ Broker CRM — a full-stack Express + React app with an embe
 - **Template subjects**: `subject TEXT` column on `message_templates`; Initial Outreach (ID=1) and Follow Up (ID=2) have live subjects
 - **Unsubscribe flow**: `GET /api/outreach/unsubscribe?email=...&token=...` — public endpoint (before requireAuth), HMAC-SHA256 token verification, adds to suppression list, returns HTML confirmation page; all outbound emails include unsubscribe footer via `appendUnsubscribeFooter()`
 - **Active sequence**: "Broker Cold Outreach v1" (ID=3) — 2-step email sequence: Step 1 (Initial Outreach, delay=0), Step 2 (Follow Up, delay=3 days)
-- **Sender inbox**: `admin@freyjaiq.com` (ID=5) — daily_limit=10, warmup_status=warm, active
-- **AutoSend cron**: `setInterval` every 5 minutes in `server/index.ts`; runs when `NODE_ENV=production` or `ENABLE_AUTO_SEND=true`; calls `sendDueEmails()` with in-process mutex to prevent overlapping runs; logs sent/errors/skipped counts with timestamps
+- **Sender inbox**: `admin@freyjaiq.com` (ID=5) — daily_limit=48, warmup_status=warm, active
+- **AutoSend cron**: `setInterval` every 30 minutes in `server/index.ts`; sends exactly 1 email per run (48/day max); runs when `NODE_ENV=production` or `ENABLE_AUTO_SEND=true`; calls `sendDueEmails(undefined, 1)` with in-process mutex to prevent overlapping runs; logs sent/errors/skipped counts with timestamps
 - **Initial enrollment**: First 20 eligible brokers enrolled in sequence 3 with `next_send_at` set to NOW (ready for immediate processing by cron)
 
 ### `artifacts/api-server` (`@workspace/api-server`)
