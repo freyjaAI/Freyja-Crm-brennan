@@ -428,7 +428,7 @@ export async function sendDueEmails(now?: string, maxSend?: number): Promise<{
           broker_id: entity.id,
           outreach_type: "email",
           message_template_used: subject,
-          status: "sent",
+          status: "contacted",
           notes: `Sequence "${enrollment.sequence_id}" step ${step.step_number} — ${result.providerMessageId ?? ""}`,
           created_at: nowISO(),
         });

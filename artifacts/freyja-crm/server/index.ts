@@ -7,8 +7,8 @@ import { createServer } from "http";
 import { initResendEmailService, getEmailService } from "./email-service";
 import { sendDueEmails } from "./outreach-service";
 import { db } from "./storage";
-import { senderInboxes } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { senderInboxes, emailMessages, outreachLog } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 
 const app = express();
 const httpServer = createServer(app);
@@ -136,8 +136,28 @@ app.use((req, res, next) => {
             });
             log(`[Startup] Created default sender inbox: ${fromName} <${fromEmail}>`);
           }
+          await db.execute(sql`UPDATE outreach_log SET status = 'contacted' WHERE status = 'sent'`);
+          await db.execute(sql`
+            INSERT INTO outreach_log (broker_id, outreach_type, message_template_used, status, notes, created_at)
+            SELECT em.entity_id, 'email', em.subject, 'contacted',
+              'Sequence "' || COALESCE(oe.sequence_id::text,'?') || '" step ' || COALESCE(oe.current_step::text,'1') || ' — ' || COALESCE(em.provider_message_id,''),
+              em.sent_at
+            FROM email_messages em
+            LEFT JOIN outreach_enrollments oe ON oe.id = em.enrollment_id
+            WHERE em.send_status = 'sent'
+              AND em.entity_id > 0
+              AND em.sent_at IS NOT NULL
+              AND em.provider_message_id IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM outreach_log ol
+                WHERE ol.broker_id = em.entity_id
+                  AND ol.outreach_type = 'email'
+                  AND ol.notes LIKE '%' || em.provider_message_id
+              )
+          `);
+          log(`[Startup] Backfilled outreach_log from email_messages`);
         } catch (err: any) {
-          log(`[Startup] Sender inbox check error: ${err.message}`);
+          log(`[Startup] Startup setup error: ${err.message}`);
         }
       })();
 
