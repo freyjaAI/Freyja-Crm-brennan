@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useTheme } from "./ThemeProvider";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { PerplexityAttribution } from "./PerplexityAttribution";
 import {
   LayoutDashboard,
@@ -14,6 +14,7 @@ import {
   Inbox,
   ShieldBan,
   Activity,
+  LogOut,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,11 @@ const navItems = [
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { theme, toggleTheme } = useTheme();
+  const queryClient = useQueryClient();
+
+  const { data: me } = useQuery<{ email: string } | null>({
+    queryKey: ["/api/me"],
+  });
 
   const { data: stats } = useQuery<{
     total: number;
@@ -70,6 +76,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }>({
     queryKey: ["/api/stats"],
   });
+
+  const handleLogout = async () => {
+    await fetch("/api/logout", { method: "POST", credentials: "include" });
+    queryClient.clear();
+    window.location.href = "/";
+  };
 
   return (
     <div className="flex h-screen overflow-hidden" data-testid="app-layout">
@@ -129,6 +141,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Footer */}
         <div className="px-3 py-3 border-t border-sidebar-border space-y-2">
+          {me?.email && (
+            <div className="px-3 py-1.5 text-[11px] text-sidebar-foreground/50 truncate">
+              {me.email}
+            </div>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -144,6 +161,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <span className="text-sm">
               {theme === "dark" ? "Light Mode" : "Dark Mode"}
             </span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleLogout}
+            className="w-full justify-start gap-2.5 text-sidebar-foreground/70 hover:text-red-500 hover:bg-sidebar-accent/50"
+          >
+            <LogOut className="w-4 h-4" />
+            <span className="text-sm">Sign Out</span>
           </Button>
           <PerplexityAttribution />
         </div>
