@@ -230,6 +230,15 @@ export function renderEmailTemplate(
     .replace(/\{\{average_price\}\}/gi, safeGet(entity.average_price, ""));
 }
 
+export function wrapHtmlEmail(bodyText: string): string {
+  const escaped = bodyText
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const bodyWithBreaks = escaped.replace(/\n/g, "<br>");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#333;max-width:600px;margin:0 auto;padding:20px;">${bodyWithBreaks}</body></html>`;
+}
+
 async function getInboxDailySentCount(inboxId: number, todayStart: string): Promise<number> {
   const result = await db.select({ cnt: sql<number>`count(*)` })
     .from(emailMessages)
@@ -345,7 +354,8 @@ export async function sendDueEmails(now?: string, maxSend?: number): Promise<{
 
     try {
       const subject = renderEmailTemplate(step.subject_template, entity);
-      const bodyHtml = renderEmailTemplate(step.body_template, entity);
+      const bodyText = renderEmailTemplate(step.body_template, entity);
+      const bodyHtml = wrapHtmlEmail(bodyText);
       const fromAddr = inbox?.email_address || "noreply@freyja.biz";
 
       const msgRow = await db.insert(emailMessages).values({
