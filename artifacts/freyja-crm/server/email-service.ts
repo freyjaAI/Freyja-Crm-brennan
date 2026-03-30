@@ -72,6 +72,10 @@ export class ResendEmailService implements IEmailService {
     return "resend";
   }
 
+  getResendClient() {
+    return this.client;
+  }
+
   async send(req: EmailSendRequest): Promise<EmailSendResult> {
     try {
       const from = req.from || this.defaultFrom;

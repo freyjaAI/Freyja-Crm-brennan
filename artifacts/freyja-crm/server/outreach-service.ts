@@ -374,6 +374,7 @@ export async function sendDueEmails(now?: string, maxSend?: number): Promise<{
         send_status: "sending",
         created_at: nowISO(),
       } as InsertEmailMessage).returning();
+      console.log(`[sendDueEmails] Created email_messages row id=${msgRow[0].id} for entity=${entity.id} enrollment=${enrollment.id}`);
 
       const result = await emailService.send({
         from: fromAddr,
@@ -383,11 +384,16 @@ export async function sendDueEmails(now?: string, maxSend?: number): Promise<{
       });
 
       if (result.success) {
-        await db.update(emailMessages).set({
-          send_status: "sent",
-          sent_at: nowISO(),
-          provider_message_id: result.providerMessageId ?? null,
-        }).where(eq(emailMessages.id, msgRow[0].id));
+        try {
+          await db.update(emailMessages).set({
+            send_status: "sent",
+            sent_at: nowISO(),
+            provider_message_id: result.providerMessageId ?? null,
+          }).where(eq(emailMessages.id, msgRow[0].id));
+          console.log(`[sendDueEmails] Updated email_messages id=${msgRow[0].id} to sent, providerMsgId=${result.providerMessageId}`);
+        } catch (dbErr: any) {
+          console.error(`[sendDueEmails] FAILED to update email_messages id=${msgRow[0].id}: ${dbErr.message}`);
+        }
 
         const steps = await getSequenceSteps(enrollment.sequence_id);
         const nextStepDef = steps.find(s => s.step_number === enrollment.current_step + 1);

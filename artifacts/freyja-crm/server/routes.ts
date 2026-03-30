@@ -1167,6 +1167,64 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/outreach/reconcile-resend", requireAuth, async (_req, res) => {
+    try {
+      const svc = getEmailService();
+      if (svc.name() !== "resend" || !("getResendClient" in svc)) {
+        return res.status(400).json({ error: "Resend not active" });
+      }
+      const resend = (svc as any).getResendClient();
+      const allEmails: any[] = [];
+      let hasMore = true;
+      let page = 1;
+      while (hasMore) {
+        const batch = await resend.emails.list({ page, pageSize: 100 });
+        if (batch.error || !batch.data?.data?.length) {
+          hasMore = false;
+        } else {
+          allEmails.push(...batch.data.data);
+          page++;
+          if (batch.data.data.length < 100) hasMore = false;
+        }
+      }
+
+      let created = 0;
+      let skipped = 0;
+      for (const email of allEmails) {
+        const resendId = email.id;
+        if (!resendId) { skipped++; continue; }
+        const existing = await db.select({ id: emailMessages.id })
+          .from(emailMessages)
+          .where(eq(emailMessages.provider_message_id, resendId))
+          .limit(1);
+        if (existing.length > 0) { skipped++; continue; }
+
+        const toAddr = Array.isArray(email.to) ? email.to[0] : email.to;
+        const entityRows = toAddr ? await db.select({ id: brokers.id })
+          .from(brokers)
+          .where(eq(brokers.email, toAddr))
+          .limit(1) : [];
+        const entityId = entityRows.length > 0 ? entityRows[0].id : 0;
+
+        await db.insert(emailMessages).values({
+          entity_id: entityId,
+          subject: email.subject || "(no subject)",
+          body_rendered: email.html || "",
+          send_status: "sent",
+          sent_at: email.created_at || new Date().toISOString(),
+          provider_message_id: resendId,
+          created_at: email.created_at || new Date().toISOString(),
+        } as any);
+        created++;
+      }
+
+      res.json({ resendTotal: allEmails.length, created, skipped });
+    } catch (err: any) {
+      console.error("[Reconcile] Error:", err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/outreach/email-provider-status", requireAuth, async (_req, res) => {
     const svc = getEmailService();
     const envCheck = validateResendEnv();
