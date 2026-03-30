@@ -15,6 +15,7 @@ import TemplatesPage from "@/pages/templates";
 import SequencesPage from "@/pages/sequences";
 import InboxHealthPage from "@/pages/inbox-health";
 import SuppressionsPage from "@/pages/suppressions";
+import OutreachDiagnosticsPage from "@/pages/outreach-diagnostics";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
 
@@ -29,6 +30,7 @@ function AppRouter() {
         <Route path="/sequences" component={SequencesPage} />
         <Route path="/inbox-health" component={InboxHealthPage} />
         <Route path="/suppressions" component={SuppressionsPage} />
+        <Route path="/diagnostics" component={OutreachDiagnosticsPage} />
         <Route path="/import" component={ImportData} />
         <Route component={NotFound} />
       </Switch>

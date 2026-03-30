@@ -26,7 +26,7 @@ import {
   type InsertOutreachSuppression,
   enrollmentStatusEnum,
 } from "@shared/schema";
-import { eq, and, lte, sql, desc, asc, inArray } from "drizzle-orm";
+import { eq, and, lte, sql, desc, asc, inArray, count, isNull, ne } from "drizzle-orm";
 
 function nowISO(): string {
   return new Date().toISOString();
@@ -616,4 +616,178 @@ export async function getInboxHealth(): Promise<Array<{
     });
   }
   return results;
+}
+
+export async function getSequenceStats(sequenceId: number): Promise<{
+  totalEnrolled: number;
+  active: number;
+  completed: number;
+  bounced: number;
+  replied: number;
+  failed: number;
+  totalSent: number;
+  totalOpened: number;
+  totalClicked: number;
+}> {
+  const enrollments = await db.select({
+    status: outreachEnrollments.status,
+    cnt: sql<number>`count(*)`,
+  }).from(outreachEnrollments)
+    .where(eq(outreachEnrollments.sequence_id, sequenceId))
+    .groupBy(outreachEnrollments.status);
+
+  const statusMap: Record<string, number> = {};
+  let totalEnrolled = 0;
+  for (const row of enrollments) {
+    statusMap[row.status] = Number(row.cnt);
+    totalEnrolled += Number(row.cnt);
+  }
+
+  const enrollmentIds = await db.select({ id: outreachEnrollments.id })
+    .from(outreachEnrollments)
+    .where(eq(outreachEnrollments.sequence_id, sequenceId));
+  const eIds = enrollmentIds.map(r => r.id);
+
+  let totalSent = 0;
+  if (eIds.length > 0) {
+    const sentResult = await db.select({ cnt: sql<number>`count(*)` })
+      .from(emailMessages)
+      .where(and(
+        inArray(emailMessages.enrollment_id, eIds),
+        eq(emailMessages.send_status, "sent"),
+      ));
+    totalSent = Number(sentResult[0]?.cnt ?? 0);
+  }
+
+  const entityIds = await db.select({ entity_id: outreachEnrollments.entity_id })
+    .from(outreachEnrollments)
+    .where(eq(outreachEnrollments.sequence_id, sequenceId));
+  const entIds = entityIds.map(r => r.entity_id);
+
+  let totalOpened = 0;
+  let totalClicked = 0;
+  if (entIds.length > 0) {
+    const openResult = await db.select({ cnt: sql<number>`count(*)` })
+      .from(outreachEvents)
+      .where(and(inArray(outreachEvents.entity_id, entIds), eq(outreachEvents.event_type, "email_opened")));
+    totalOpened = Number(openResult[0]?.cnt ?? 0);
+
+    const clickResult = await db.select({ cnt: sql<number>`count(*)` })
+      .from(outreachEvents)
+      .where(and(inArray(outreachEvents.entity_id, entIds), eq(outreachEvents.event_type, "email_clicked")));
+    totalClicked = Number(clickResult[0]?.cnt ?? 0);
+  }
+
+  return {
+    totalEnrolled,
+    active: statusMap["active"] ?? 0,
+    completed: statusMap["completed"] ?? 0,
+    bounced: statusMap["bounced"] ?? 0,
+    replied: statusMap["replied"] ?? 0,
+    failed: statusMap["failed"] ?? 0,
+    totalSent,
+    totalOpened,
+    totalClicked,
+  };
+}
+
+export async function getOutreachDiagnostics(): Promise<{
+  recentSends: Array<Omit<EmailMessage, 'body_rendered'> & { broker_email?: string; broker_name?: string }>;
+  recentWebhookEvents: OutreachEvent[];
+  unmatchedProviderIds: Array<{ id: number; provider_message_id: string | null; send_status: string; sent_at: string | null }>;
+  counts: {
+    totalMessages: number;
+    sent: number;
+    failed: number;
+    sending: number;
+    totalEvents: number;
+    eventsByType: Record<string, number>;
+    activeEnrollments: number;
+    completedEnrollments: number;
+    suppressions: number;
+  };
+}> {
+  const recentSendsRaw = await db.select({
+    id: emailMessages.id,
+    enrollment_id: emailMessages.enrollment_id,
+    entity_id: emailMessages.entity_id,
+    inbox_id: emailMessages.inbox_id,
+    provider_message_id: emailMessages.provider_message_id,
+    subject: emailMessages.subject,
+    send_status: emailMessages.send_status,
+    sent_at: emailMessages.sent_at,
+    bounce_type: emailMessages.bounce_type,
+    reply_status: emailMessages.reply_status,
+    created_at: emailMessages.created_at,
+  }).from(emailMessages)
+    .orderBy(desc(emailMessages.id))
+    .limit(10);
+
+  const recentSends = [];
+  for (const msg of recentSendsRaw) {
+    const brokerRows = await db.select().from(brokers)
+      .where(eq(brokers.id, msg.entity_id)).limit(1);
+    recentSends.push({
+      ...msg,
+      broker_email: brokerRows[0]?.email ?? undefined,
+      broker_name: brokerRows[0]?.full_name ?? undefined,
+    });
+  }
+
+  const recentWebhookEvents = await db.select().from(outreachEvents)
+    .orderBy(desc(outreachEvents.id))
+    .limit(10);
+
+  const unmatchedRows = await db.select({
+    id: emailMessages.id,
+    provider_message_id: emailMessages.provider_message_id,
+    send_status: emailMessages.send_status,
+    sent_at: emailMessages.sent_at,
+  }).from(emailMessages)
+    .where(and(
+      eq(emailMessages.send_status, "sent"),
+      sql`NOT EXISTS (
+        SELECT 1 FROM outreach_events oe
+        WHERE oe.event_type IN ('email_opened', 'email_clicked', 'email_bounced')
+        AND (oe.metadata_json->>'provider_message_id') = ${emailMessages.provider_message_id}
+      )`,
+    ))
+    .orderBy(desc(emailMessages.id))
+    .limit(20);
+
+  const totalMsgs = await db.select({ cnt: sql<number>`count(*)` }).from(emailMessages);
+  const sentMsgs = await db.select({ cnt: sql<number>`count(*)` }).from(emailMessages).where(eq(emailMessages.send_status, "sent"));
+  const failedMsgs = await db.select({ cnt: sql<number>`count(*)` }).from(emailMessages).where(eq(emailMessages.send_status, "failed"));
+  const sendingMsgs = await db.select({ cnt: sql<number>`count(*)` }).from(emailMessages).where(eq(emailMessages.send_status, "sending"));
+  const totalEvents = await db.select({ cnt: sql<number>`count(*)` }).from(outreachEvents);
+  const eventsByType = await db.select({
+    event_type: outreachEvents.event_type,
+    cnt: sql<number>`count(*)`,
+  }).from(outreachEvents).groupBy(outreachEvents.event_type);
+
+  const activeEnr = await db.select({ cnt: sql<number>`count(*)` }).from(outreachEnrollments).where(eq(outreachEnrollments.status, "active"));
+  const completedEnr = await db.select({ cnt: sql<number>`count(*)` }).from(outreachEnrollments).where(eq(outreachEnrollments.status, "completed"));
+  const suppCount = await db.select({ cnt: sql<number>`count(*)` }).from(outreachSuppressions);
+
+  const evtMap: Record<string, number> = {};
+  for (const row of eventsByType) {
+    evtMap[row.event_type] = Number(row.cnt);
+  }
+
+  return {
+    recentSends,
+    recentWebhookEvents,
+    unmatchedProviderIds: unmatchedRows,
+    counts: {
+      totalMessages: Number(totalMsgs[0]?.cnt ?? 0),
+      sent: Number(sentMsgs[0]?.cnt ?? 0),
+      failed: Number(failedMsgs[0]?.cnt ?? 0),
+      sending: Number(sendingMsgs[0]?.cnt ?? 0),
+      totalEvents: Number(totalEvents[0]?.cnt ?? 0),
+      eventsByType: evtMap,
+      activeEnrollments: Number(activeEnr[0]?.cnt ?? 0),
+      completedEnrollments: Number(completedEnr[0]?.cnt ?? 0),
+      suppressions: Number(suppCount[0]?.cnt ?? 0),
+    },
+  };
 }

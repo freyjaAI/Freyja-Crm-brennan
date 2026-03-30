@@ -958,10 +958,22 @@ export async function registerRoutes(
     try {
       const sequences = await outreachService.listSequences();
       const withSteps = await Promise.all(sequences.map(async (seq) => {
-        const steps = await outreachService.getSequenceSteps(seq.id);
-        return { ...seq, steps };
+        const [steps, stats] = await Promise.all([
+          outreachService.getSequenceSteps(seq.id),
+          outreachService.getSequenceStats(seq.id),
+        ]);
+        return { ...seq, steps, stats };
       }));
       res.json(withSteps);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/diagnostics", async (_req, res) => {
+    try {
+      const diag = await outreachService.getOutreachDiagnostics();
+      res.json(diag);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

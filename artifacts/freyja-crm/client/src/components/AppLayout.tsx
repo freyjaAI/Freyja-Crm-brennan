@@ -13,6 +13,7 @@ import {
   Zap,
   Inbox,
   ShieldBan,
+  Activity,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,7 @@ const navItems = [
   { href: "/templates", label: "Templates", icon: FileText },
   { href: "/inbox-health", label: "Inbox Health", icon: Inbox },
   { href: "/suppressions", label: "Suppressions", icon: ShieldBan },
+  { href: "/diagnostics", label: "Diagnostics", icon: Activity },
   { href: "/import", label: "Import Data", icon: Upload },
 ];
 

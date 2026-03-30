@@ -19,7 +19,19 @@ import {
   ChevronDown, ChevronUp, ArrowLeft, GripVertical, Zap, Send,
 } from "lucide-react";
 
-type SequenceWithSteps = OutreachSequence & { steps: OutreachSequenceStep[] };
+interface SequenceStats {
+  totalEnrolled: number;
+  active: number;
+  completed: number;
+  bounced: number;
+  replied: number;
+  failed: number;
+  totalSent: number;
+  totalOpened: number;
+  totalClicked: number;
+}
+
+type SequenceWithSteps = OutreachSequence & { steps: OutreachSequenceStep[]; stats?: SequenceStats };
 
 const CHANNEL_LABELS: Record<string, string> = { email: "Email", linkedin: "LinkedIn", multi: "Multi-Channel" };
 const STEP_TYPE_ICONS: Record<string, React.ReactNode> = {
@@ -290,6 +302,19 @@ export default function SequencesPage() {
                     </Button>
                   </div>
                 </div>
+
+                {seq.stats && seq.stats.totalEnrolled > 0 && (
+                  <div className="mt-3 flex items-center gap-4 text-xs">
+                    <span className="text-muted-foreground">Enrolled: <strong className="text-foreground">{seq.stats.totalEnrolled}</strong></span>
+                    <span className="text-muted-foreground">Active: <strong className="text-blue-600">{seq.stats.active}</strong></span>
+                    <span className="text-muted-foreground">Sent: <strong className="text-green-600">{seq.stats.totalSent}</strong></span>
+                    {seq.stats.totalOpened > 0 && <span className="text-muted-foreground">Opened: <strong className="text-violet-600">{seq.stats.totalOpened}</strong></span>}
+                    {seq.stats.totalClicked > 0 && <span className="text-muted-foreground">Clicked: <strong className="text-indigo-600">{seq.stats.totalClicked}</strong></span>}
+                    {seq.stats.completed > 0 && <span className="text-muted-foreground">Completed: <strong>{seq.stats.completed}</strong></span>}
+                    {seq.stats.bounced > 0 && <span className="text-muted-foreground">Bounced: <strong className="text-red-600">{seq.stats.bounced}</strong></span>}
+                    {seq.stats.replied > 0 && <span className="text-muted-foreground">Replied: <strong className="text-emerald-600">{seq.stats.replied}</strong></span>}
+                  </div>
+                )}
 
                 {expandedId === seq.id && seq.steps && (
                   <div className="mt-4 ml-11 space-y-2">
