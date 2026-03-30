@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage, db, pool } from "./storage";
-import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers, insertOutreachSequenceSchema, updateOutreachSequenceSchema, insertOutreachSequenceStepSchema, insertOutreachEnrollmentSchema, outreachSuppressions, outreachEnrollments, emailMessages, outreachEvents } from "@shared/schema";
+import { updateBrokerSchema, insertOutreachLogSchema, updateOutreachLogSchema, insertMessageTemplateSchema, updateMessageTemplateSchema, brokers, insertOutreachSequenceSchema, updateOutreachSequenceSchema, insertOutreachSequenceStepSchema, insertOutreachEnrollmentSchema, outreachSuppressions, outreachEnrollments, emailMessages, outreachEvents, senderInboxes } from "@shared/schema";
 import type { Broker } from "@shared/schema";
 import { requireAuth } from "./auth";
 import fs from "fs";
@@ -1015,6 +1015,54 @@ export async function registerRoutes(
 
       if (result.error) return res.status(400).json({ error: result.error });
       res.status(201).json(result.enrollment);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/bulk-enroll", async (req, res) => {
+    try {
+      const { sequenceId, entityIds, entityType, inboxId, staggerMinutes } = req.body;
+      if (!sequenceId || !entityIds || !Array.isArray(entityIds)) {
+        return res.status(400).json({ error: "sequenceId and entityIds[] required" });
+      }
+      const results: Array<{ entityId: number; status: string; error?: string }> = [];
+      const stagger = (staggerMinutes || 30) * 60 * 1000;
+      let enrolled = 0;
+
+      for (let i = 0; i < entityIds.length; i++) {
+        const eid = Number(entityIds[i]);
+        const result = await outreachService.enrollEntityInSequence(
+          Number(sequenceId), eid, entityType || "broker", inboxId ? Number(inboxId) : undefined
+        );
+        if (result.error) {
+          results.push({ entityId: eid, status: "error", error: result.error });
+        } else if (result.enrollment) {
+          const nextSendAt = new Date(Date.now() + i * stagger).toISOString();
+          await db.update(outreachEnrollments).set({ next_send_at: nextSendAt })
+            .where(eq(outreachEnrollments.id, result.enrollment.id));
+          results.push({ entityId: eid, status: "enrolled" });
+          enrolled++;
+        }
+      }
+      res.json({ enrolled, errors: results.filter(r => r.status === "error").length, results });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/outreach/sender-inboxes", async (req, res) => {
+    try {
+      const { emailAddress, displayName, dailyLimit } = req.body;
+      if (!emailAddress) return res.status(400).json({ error: "emailAddress required" });
+      const rows = await db.insert(senderInboxes).values({
+        email_address: emailAddress,
+        display_name: displayName || null,
+        daily_limit: dailyLimit || 48,
+        active: true,
+        created_at: new Date().toISOString(),
+      }).returning();
+      res.status(201).json(rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
