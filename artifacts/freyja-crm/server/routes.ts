@@ -9,7 +9,7 @@ import Papa from "papaparse";
 import { eq, isNull, or, and, like, sql } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import * as outreachService from "./outreach-service";
-import { getEmailService, validateResendEnv } from "./email-service";
+import { getEmailService, validateResendEnv, verifyUnsubToken } from "./email-service";
 
 const genai = new GoogleGenAI({
   apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY || "dummy",
@@ -283,6 +283,28 @@ export async function registerRoutes(
     } catch (err: any) {
       console.error("[Resend Webhook] Error:", err.message);
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/outreach/unsubscribe", async (req, res) => {
+    try {
+      const email = req.query.email as string;
+      const token = req.query.token as string;
+
+      if (!email || !token) {
+        return res.status(400).send("<html><body style='font-family:sans-serif;text-align:center;padding:60px'><h2>Invalid link</h2><p>Missing email or token.</p></body></html>");
+      }
+
+      if (!verifyUnsubToken(email, token)) {
+        return res.status(403).send("<html><body style='font-family:sans-serif;text-align:center;padding:60px'><h2>Invalid link</h2><p>This unsubscribe link is invalid or expired.</p></body></html>");
+      }
+
+      await outreachService.processUnsubscribe({ email });
+
+      res.send(`<html><body style="font-family:sans-serif;text-align:center;padding:60px;color:#333"><h2 style="color:#6c63ff">Unsubscribed</h2><p>You've been removed from our mailing list.</p><p style="color:#999;font-size:13px">You won't receive any more emails from us.</p></body></html>`);
+    } catch (err: any) {
+      console.error("[Unsubscribe] Error:", err.message);
+      res.status(500).send("<html><body style='font-family:sans-serif;text-align:center;padding:60px'><h2>Something went wrong</h2><p>Please try again or reply STOP to any email.</p></body></html>");
     }
   });
 

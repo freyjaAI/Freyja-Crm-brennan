@@ -134,6 +134,7 @@ export type UpdateOutreachLog = z.infer<typeof updateOutreachLogSchema>;
 export const messageTemplates = pgTable("message_templates", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  subject: text("subject"),
   category: text("category").notNull(),
   body_text: text("body_text").notNull(),
   created_at: text("created_at"),
@@ -142,12 +143,14 @@ export const messageTemplates = pgTable("message_templates", {
 
 export const insertMessageTemplateSchema = z.object({
   name: z.string().min(1),
+  subject: z.string().optional().nullable(),
   category: z.enum(templateCategoryEnum),
   body_text: z.string().min(1),
 });
 
 export const updateMessageTemplateSchema = z.object({
   name: z.string().min(1).optional(),
+  subject: z.string().optional().nullable(),
   category: z.enum(templateCategoryEnum).optional(),
   body_text: z.string().min(1).optional(),
 });

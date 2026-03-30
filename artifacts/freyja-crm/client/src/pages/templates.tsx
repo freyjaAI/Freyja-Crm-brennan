@@ -35,11 +35,12 @@ const VARIABLES = ["{{broker_name}}", "{{company_name}}"];
 
 interface TemplateForm {
   name: string;
+  subject: string;
   category: TemplateCategory;
   body_text: string;
 }
 
-const emptyForm: TemplateForm = { name: "", category: "intro", body_text: "" };
+const emptyForm: TemplateForm = { name: "", subject: "", category: "intro", body_text: "" };
 
 export default function TemplatesPage() {
   const { toast } = useToast();
@@ -96,6 +97,7 @@ export default function TemplatesPage() {
     setEditingTemplate(template);
     setForm({
       name: template.name,
+      subject: template.subject || "",
       category: template.category as TemplateCategory,
       body_text: template.body_text,
     });
@@ -235,6 +237,15 @@ export default function TemplatesPage() {
                 value={form.name}
                 onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))}
                 autoFocus
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Subject Line <span className="text-muted-foreground font-normal">(optional)</span></label>
+              <Input
+                placeholder="e.g. {{first_name}}, quick question about {{company_name}}"
+                value={form.subject}
+                onChange={(e) => setForm(f => ({ ...f, subject: e.target.value }))}
               />
             </div>
 

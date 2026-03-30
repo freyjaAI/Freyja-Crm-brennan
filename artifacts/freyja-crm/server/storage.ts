@@ -428,6 +428,7 @@ export class DatabaseStorage implements IStorage {
   async updateMessageTemplate(id: number, data: UpdateMessageTemplate): Promise<MessageTemplate | undefined> {
     const updateData: any = { updated_at: new Date().toISOString() };
     if (data.name !== undefined) updateData.name = data.name;
+    if (data.subject !== undefined) updateData.subject = data.subject;
     if (data.category !== undefined) updateData.category = data.category;
     if (data.body_text !== undefined) updateData.body_text = data.body_text;
     await db.update(messageTemplates).set(updateData).where(eq(messageTemplates.id, id));

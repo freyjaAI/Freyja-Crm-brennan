@@ -1,4 +1,28 @@
 import { Resend } from "resend";
+import crypto from "crypto";
+
+const UNSUB_SECRET = process.env.RESEND_API_KEY || "freyja-unsub-default-key";
+
+export function generateUnsubToken(email: string): string {
+  return crypto.createHmac("sha256", UNSUB_SECRET).update(email.toLowerCase().trim()).digest("hex").slice(0, 32);
+}
+
+export function verifyUnsubToken(email: string, token: string): boolean {
+  return generateUnsubToken(email) === token;
+}
+
+function buildUnsubUrl(recipientEmail: string): string {
+  const token = generateUnsubToken(recipientEmail);
+  const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0] || "localhost:8080";
+  const protocol = domain.includes("localhost") ? "http" : "https";
+  return `${protocol}://${domain}/api/outreach/unsubscribe?email=${encodeURIComponent(recipientEmail)}&token=${token}`;
+}
+
+function appendUnsubscribeFooter(bodyHtml: string, recipientEmail: string): string {
+  const unsubUrl = buildUnsubUrl(recipientEmail);
+  const footer = `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e5e5;font-size:11px;color:#999;line-height:1.6;">If you'd rather not hear from us, reply STOP or <a href="${unsubUrl}" style="color:#999;text-decoration:underline;">click here to unsubscribe</a>.</div>`;
+  return bodyHtml + footer;
+}
 
 export interface EmailSendRequest {
   from: string;
@@ -7,6 +31,7 @@ export interface EmailSendRequest {
   bodyHtml: string;
   replyTo?: string;
   headers?: Record<string, string>;
+  skipUnsubFooter?: boolean;
 }
 
 export interface EmailSendResult {
@@ -26,7 +51,8 @@ export class ConsoleEmailService implements IEmailService {
   }
   async send(req: EmailSendRequest): Promise<EmailSendResult> {
     const id = `console_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    console.log(`[EmailService:console] TO=${req.to} SUBJ="${req.subject}" ID=${id}`);
+    const finalBody = req.skipUnsubFooter ? req.bodyHtml : appendUnsubscribeFooter(req.bodyHtml, req.to);
+    console.log(`[EmailService:console] TO=${req.to} SUBJ="${req.subject}" ID=${id} bodyLen=${finalBody.length}`);
     return { success: true, providerMessageId: id };
   }
 }
@@ -50,12 +76,13 @@ export class ResendEmailService implements IEmailService {
     try {
       const from = req.from || this.defaultFrom;
       const replyTo = req.replyTo || this.defaultReplyTo;
+      const finalBody = req.skipUnsubFooter ? req.bodyHtml : appendUnsubscribeFooter(req.bodyHtml, req.to);
 
       const { data, error } = await this.client.emails.send({
         from,
         to: [req.to],
         subject: req.subject,
-        html: req.bodyHtml,
+        html: finalBody,
         ...(replyTo ? { reply_to: [replyTo] } : {}),
         ...(req.headers ? { headers: req.headers } : {}),
       });
