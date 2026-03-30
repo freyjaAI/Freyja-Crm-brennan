@@ -6,6 +6,7 @@ import type { Broker } from "@shared/schema";
 import { requireAuth } from "./auth";
 import fs from "fs";
 import Papa from "papaparse";
+import multer from "multer";
 import { eq, isNull, or, and, like, sql } from "drizzle-orm";
 import { GoogleGenAI } from "@google/genai";
 import * as outreachService from "./outreach-service";
@@ -433,6 +434,157 @@ export async function registerRoutes(
       res.setHeader("Content-Disposition", "attachment; filename=brokers_export.csv");
       res.send(csv);
     } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+  app.post("/api/brokers/import-csv", upload.single("file"), async (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+      const sourceTag = (req.body.sourceTag || "csv_import").trim();
+      const sequenceId = req.body.sequenceId ? Number(req.body.sequenceId) : null;
+      const priority = req.body.priority != null ? Number(req.body.priority) : 0;
+
+      const csvText = req.file.buffer.toString("utf-8");
+      const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+      if (parsed.errors.length > 0) {
+        console.log("[import-csv] parse warnings:", parsed.errors.slice(0, 5));
+      }
+      const rows = parsed.data as Record<string, any>[];
+      if (!rows.length) return res.status(400).json({ error: "CSV has no data rows" });
+
+      console.log(`[import-csv] Parsed ${rows.length} rows, source=${sourceTag}, seq=${sequenceId}, priority=${priority}`);
+      console.log("[import-csv] CSV columns:", Object.keys(rows[0]).join(", "));
+
+      const colMap = (row: Record<string, any>) => ({
+        full_name: row.full_name || row.name || row.Name || row["Full Name"] || null,
+        first_name: row.first_name || row["First Name"] || null,
+        last_name: row.last_name || row["Last Name"] || null,
+        email: row.email || row.Email || row.email_address || null,
+        email_secondary: row.email_secondary || null,
+        phone: row.phone || row.Phone || row.phone_number || null,
+        mobile: row.mobile || row.Mobile || null,
+        fax: row.fax || null,
+        office_name: row.office_name || row["Office Name"] || row.brokerage || row.Brokerage || null,
+        job_title: row.job_title || row["Job Title"] || null,
+        address: row.address || row.Address || null,
+        city: row.city || row.City || null,
+        state: row.state || row.State || null,
+        zip_code: row.zip_code || row.zip || row.Zip || null,
+        license_number: row.license_number || row["License Number"] || null,
+        website: row.website || row.Website || null,
+        profile_url: row.profile_url || null,
+        photo_url: row.photo_url || null,
+        experience_years: row.experience_years || null,
+        description: row.description || null,
+        languages: row.languages || null,
+        specialties: row.specialties || null,
+        for_sale_count: row.for_sale_count || null,
+        recently_sold_count: row.recently_sold_count || null,
+        average_price: row.average_price || null,
+        social_media: row.social_media || null,
+        source_file: row.source_file || null,
+        source_type: sourceTag,
+        outreach_status: row.outreach_status || "not_contacted",
+        linkedin_url: row.linkedin_url || null,
+        linkedin_headline: row.linkedin_headline || null,
+      });
+
+      let imported = 0;
+      let skipped = 0;
+      let errors = 0;
+      const importedIds: number[] = [];
+
+      for (const row of rows) {
+        const mapped = colMap(row);
+        if (!mapped.full_name && !mapped.email) { skipped++; continue; }
+
+        const existingId = row.id ? Number(row.id) : null;
+
+        try {
+          if (existingId && !isNaN(existingId)) {
+            const existing = await pool.query("SELECT id FROM brokers WHERE id = $1", [existingId]);
+            if (existing.rows.length > 0) {
+              await pool.query("UPDATE brokers SET source_type = $1 WHERE id = $2", [sourceTag, existingId]);
+              importedIds.push(existingId);
+              imported++;
+              continue;
+            }
+          }
+
+          if (mapped.email) {
+            const dup = await pool.query("SELECT id FROM brokers WHERE email = $1 LIMIT 1", [mapped.email]);
+            if (dup.rows.length > 0) {
+              await pool.query("UPDATE brokers SET source_type = $1 WHERE id = $2", [sourceTag, dup.rows[0].id]);
+              importedIds.push(dup.rows[0].id);
+              imported++;
+              continue;
+            }
+          }
+
+          const cols = Object.keys(mapped).filter(k => (mapped as any)[k] != null);
+          const vals = cols.map(k => (mapped as any)[k]);
+          const placeholders = cols.map((_, i) => `$${i + 1}`);
+          const insertRes = await pool.query(
+            `INSERT INTO brokers (${cols.join(", ")}) VALUES (${placeholders.join(", ")}) RETURNING id`,
+            vals
+          );
+          importedIds.push(insertRes.rows[0].id);
+          imported++;
+        } catch (e: any) {
+          errors++;
+          if (errors <= 3) console.log("[import-csv] Row error:", e.message);
+        }
+      }
+
+      console.log(`[import-csv] Import done: ${imported} imported, ${skipped} skipped, ${errors} errors`);
+
+      let enrolled = 0;
+      let enrollSkipped = 0;
+      if (sequenceId && importedIds.length > 0) {
+        const existingEnrollments = await pool.query(
+          "SELECT entity_id FROM outreach_enrollments WHERE sequence_id = $1 AND entity_type = 'broker' AND entity_id = ANY($2::int[])",
+          [sequenceId, importedIds]
+        );
+        const alreadyEnrolled = new Set(existingEnrollments.rows.map((r: any) => r.entity_id));
+
+        const suppressedRes = await pool.query("SELECT email FROM outreach_suppressions");
+        const suppressed = new Set(suppressedRes.rows.map((r: any) => r.email?.toLowerCase()));
+
+        const stepsRes = await pool.query(
+          "SELECT delay_days FROM outreach_sequence_steps WHERE sequence_id = $1 ORDER BY step_number ASC LIMIT 1",
+          [sequenceId]
+        );
+        const firstDelay = stepsRes.rows.length > 0 ? stepsRes.rows[0].delay_days * 86400000 : 0;
+        const STAGGER_MS = 30 * 60 * 1000;
+        const now = new Date();
+        let staggerIdx = 0;
+
+        for (const brokerId of importedIds) {
+          if (alreadyEnrolled.has(brokerId)) { enrollSkipped++; continue; }
+
+          const brokerEmail = await pool.query("SELECT email FROM brokers WHERE id = $1", [brokerId]);
+          const email = brokerEmail.rows[0]?.email;
+          if (email && suppressed.has(email.toLowerCase())) { enrollSkipped++; continue; }
+
+          const nextSendAt = new Date(now.getTime() + firstDelay + staggerIdx * STAGGER_MS).toISOString();
+          await pool.query(
+            `INSERT INTO outreach_enrollments (sequence_id, entity_id, entity_type, priority, status, current_step, next_send_at, created_at, updated_at)
+             VALUES ($1, $2, 'broker', $3, 'active', 1, $4, $5, $5)`,
+            [sequenceId, brokerId, priority, nextSendAt, now.toISOString()]
+          );
+          staggerIdx++;
+          enrolled++;
+        }
+        console.log(`[import-csv] Enrollment: ${enrolled} enrolled, ${enrollSkipped} skipped (dup/suppressed)`);
+      }
+
+      res.json({ imported, skipped, errors, enrolled, enrollSkipped, totalRows: rows.length });
+    } catch (err: any) {
+      console.error("[import-csv] Error:", err);
       res.status(500).json({ error: err.message });
     }
   });

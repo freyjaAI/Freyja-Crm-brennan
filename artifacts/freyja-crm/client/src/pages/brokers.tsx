@@ -42,6 +42,7 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  Upload,
   X,
   Sparkles,
   Loader2,
@@ -281,6 +282,13 @@ export default function Brokers() {
   const abortRef = useRef<AbortController | null>(null);
 
   const [enrollModalOpen, setEnrollModalOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importSourceTag, setImportSourceTag] = useState("csv_import");
+  const [importSeqId, setImportSeqId] = useState("");
+  const [importPriority, setImportPriority] = useState("0");
+  const [importResult, setImportResult] = useState<any>(null);
+  const [importLoading, setImportLoading] = useState(false);
   const [aiLeadsMode, setAiLeadsMode] = useState(false);
   const [aiLeadsData, setAiLeadsData] = useState<{ brokers: (Broker & { lead_score: number })[]; total: number } | null>(null);
   const [aiLeadsLoading, setAiLeadsLoading] = useState(false);
@@ -419,6 +427,10 @@ export default function Brokers() {
     },
   });
 
+  const { data: sequences } = useQuery<any[]>({
+    queryKey: ["/api/outreach/sequences"],
+  });
+
   const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: OutreachStatus }) => {
       const res = await apiRequest("PATCH", `/api/brokers/${id}`, { outreach_status: status });
@@ -448,6 +460,34 @@ export default function Brokers() {
   const handleExport = () => {
     const params = buildQueryParams(queryFilters);
     window.open(`/api/brokers/export?${params.toString()}`, "_blank");
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImportLoading(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", importFile);
+      formData.append("sourceTag", importSourceTag);
+      if (importSeqId) formData.append("sequenceId", importSeqId);
+      formData.append("priority", importPriority);
+      const res = await fetch("/api/brokers/import-csv", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      setImportResult(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/brokers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/outreach/sequences"] });
+      toast({ title: "Import complete", description: `${data.imported} brokers imported, ${data.enrolled} enrolled` });
+    } catch (e: any) {
+      toast({ title: "Import failed", description: e.message, variant: "destructive" });
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   const toggleSelect = (id: number) => {
@@ -671,6 +711,10 @@ export default function Brokers() {
               <Button variant="outline" size="sm" onClick={handleExport} className="h-7 text-xs" data-testid="button-export">
                 <Download className="w-3.5 h-3.5 mr-1" />
                 CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setImportDialogOpen(true); setImportResult(null); setImportFile(null); }} className="h-7 text-xs">
+                <Upload className="w-3.5 h-3.5 mr-1" />
+                Import
               </Button>
             </div>
           </div>
@@ -1192,6 +1236,69 @@ export default function Brokers() {
         entityName={`${selectedIds.size} brokers`}
         mode="bulk"
       />
+
+      <Dialog open={importDialogOpen} onOpenChange={(v) => { if (!v) { setImportDialogOpen(false); setImportResult(null); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-4 h-4" /> Import Brokers from CSV
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">CSV File</label>
+              <Input type="file" accept=".csv" onChange={(e) => setImportFile(e.target.files?.[0] ?? null)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Source Tag</label>
+              <Input value={importSourceTag} onChange={(e) => setImportSourceTag(e.target.value)} placeholder="e.g. flnewandhungry" />
+              <p className="text-[10px] text-muted-foreground">Tags imported brokers so you can filter by source later</p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Auto-Enroll in Sequence (optional)</label>
+              <Select value={importSeqId} onValueChange={setImportSeqId}>
+                <SelectTrigger><SelectValue placeholder="None — import only" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None — import only</SelectItem>
+                  {(sequences ?? []).filter(s => s.active).map((s: any) => (
+                    <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {importSeqId && importSeqId !== "none" && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Priority</label>
+                <div className="flex gap-2">
+                  {[{ v: "0", l: "Normal", c: "bg-muted text-muted-foreground" }, { v: "5", l: "High", c: "bg-amber-100 text-amber-700" }, { v: "10", l: "Urgent", c: "bg-red-100 text-red-700" }].map(opt => (
+                    <button key={opt.v} onClick={() => setImportPriority(opt.v)}
+                      className={`flex-1 py-1.5 px-2 rounded-md text-xs font-medium border-2 transition-all ${importPriority === opt.v ? `${opt.c} border-current` : "bg-background text-muted-foreground border-border hover:border-muted-foreground/30"}`}>
+                      {opt.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {importResult && (
+              <div className="p-3 rounded-lg border bg-muted/50 space-y-1 text-xs">
+                <p className="font-medium text-green-700">Import Complete</p>
+                <p>Rows processed: {importResult.totalRows}</p>
+                <p>Brokers imported/matched: {importResult.imported}</p>
+                <p>Skipped (no name/email): {importResult.skipped}</p>
+                {importResult.errors > 0 && <p className="text-red-600">Errors: {importResult.errors}</p>}
+                {importResult.enrolled > 0 && <p className="text-blue-700">Enrolled in sequence: {importResult.enrolled}</p>}
+                {importResult.enrollSkipped > 0 && <p>Already enrolled (skipped): {importResult.enrollSkipped}</p>}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImportDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleImport} disabled={!importFile || importLoading}>
+              {importLoading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Importing...</> : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
