@@ -1,11 +1,14 @@
 import type { Request, Response, NextFunction } from "express";
 
-const ADMIN_EMAIL = "admin@freyja.biz";
-const ADMIN_PASSWORD = "Freyja.123!";
+const USERS: { email: string; password: string }[] = [
+  { email: "admin@freyja.biz", password: "Freyja.123!" },
+  { email: "manus@freyja.biz", password: "Manus123" },
+];
 
 declare module "express-session" {
   interface SessionData {
     authenticated: boolean;
+    userEmail: string;
   }
 }
 
@@ -19,8 +22,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 export function registerAuthRoutes(app: import("express").Express) {
   app.post("/api/login", (req, res) => {
     const { email, password } = req.body;
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+    const user = USERS.find(u => u.email.toLowerCase() === email?.toLowerCase() && u.password === password);
+    if (user) {
       req.session.authenticated = true;
+      req.session.userEmail = user.email;
       req.session.save((err) => {
         if (err) {
           console.error("[Auth] Session save error:", err);
@@ -40,7 +45,7 @@ export function registerAuthRoutes(app: import("express").Express) {
 
   app.get("/api/me", (req, res) => {
     if (req.session.authenticated) {
-      res.json({ email: ADMIN_EMAIL });
+      res.json({ email: req.session.userEmail });
     } else {
       res.status(401).json({ error: "Unauthorized" });
     }
