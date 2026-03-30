@@ -433,10 +433,12 @@ export class DatabaseStorage implements IStorage {
 
     return {
       totalContacted: Object.values(statusMap).reduce((a, b) => a + b, 0),
-      awaitingResponse: (statusMap["contacted"] || 0) + (statusMap["no_response"] || 0),
+      awaitingResponse: (statusMap["contacted"] || 0) + (statusMap["opened"] || 0) + (statusMap["no_response"] || 0),
       meetingsSet: statusMap["meeting_set"] || 0,
       conversions: statusMap["closed"] || 0,
       overdueFollowUps: Number(overdue[0]?.value ?? 0),
+      opened: statusMap["opened"] || 0,
+      responded: statusMap["responded"] || 0,
     };
   }
 

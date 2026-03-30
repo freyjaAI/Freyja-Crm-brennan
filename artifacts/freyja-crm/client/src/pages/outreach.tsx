@@ -23,6 +23,7 @@ import {
 
 const STATUS_LABELS: Record<string, string> = {
   contacted: "Contacted",
+  opened: "Opened",
   responded: "Responded",
   meeting_set: "Meeting Set",
   closed: "Closed",
@@ -31,6 +32,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_BADGE: Record<string, string> = {
   contacted: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  opened: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
   responded: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
   meeting_set: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
   closed: "bg-primary/10 text-primary",

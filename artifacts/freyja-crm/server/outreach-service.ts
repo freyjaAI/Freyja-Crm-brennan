@@ -520,6 +520,8 @@ export async function processReplyWebhook(payload: {
     created_by: "system",
   });
 
+  await updateOutreachLogStatus(enrollment.entity_id, "responded", ["contacted", "opened"]);
+
   return { processed: true };
 }
 
@@ -634,6 +636,33 @@ export async function processUnsubscribe(params: {
   });
 
   return { processed: true };
+}
+
+export async function updateOutreachLogStatus(
+  entityId: number,
+  newStatus: string,
+  onlyIfCurrentStatus?: string[],
+): Promise<boolean> {
+  if (!entityId) return false;
+
+  const conditions: any[] = [eq(outreachLog.broker_id, entityId)];
+  if (onlyIfCurrentStatus && onlyIfCurrentStatus.length > 0) {
+    conditions.push(inArray(outreachLog.status, onlyIfCurrentStatus));
+  }
+
+  const rows = await db.select({ id: outreachLog.id, status: outreachLog.status })
+    .from(outreachLog)
+    .where(and(...conditions))
+    .orderBy(desc(outreachLog.created_at))
+    .limit(1);
+
+  if (rows.length === 0) return false;
+
+  await db.update(outreachLog)
+    .set({ status: newStatus })
+    .where(eq(outreachLog.id, rows[0].id));
+
+  return true;
 }
 
 export async function getEntityTimeline(entityId: number, entityType: string): Promise<OutreachEvent[]> {
@@ -820,6 +849,17 @@ export async function getOutreachDiagnostics(): Promise<{
   const completedEnr = await db.select({ cnt: sql<number>`count(*)` }).from(outreachEnrollments).where(eq(outreachEnrollments.status, "completed"));
   const suppCount = await db.select({ cnt: sql<number>`count(*)` }).from(outreachSuppressions);
 
+  const outreachLogStatuses = await db.select({
+    status: outreachLog.status,
+    cnt: sql<number>`count(*)`,
+  }).from(outreachLog).groupBy(outreachLog.status);
+  const logStatusMap: Record<string, number> = {};
+  let totalOutreachLog = 0;
+  for (const row of outreachLogStatuses) {
+    logStatusMap[row.status] = Number(row.cnt);
+    totalOutreachLog += Number(row.cnt);
+  }
+
   const evtMap: Record<string, number> = {};
   for (const row of eventsByType) {
     evtMap[row.event_type] = Number(row.cnt);
@@ -839,6 +879,13 @@ export async function getOutreachDiagnostics(): Promise<{
       activeEnrollments: Number(activeEnr[0]?.cnt ?? 0),
       completedEnrollments: Number(completedEnr[0]?.cnt ?? 0),
       suppressions: Number(suppCount[0]?.cnt ?? 0),
+      totalOutreachLog,
+      outreachLogByStatus: logStatusMap,
+      totalOpens: evtMap["email_opened"] ?? 0,
+      totalClicks: evtMap["email_clicked"] ?? 0,
+      totalBounces: evtMap["email_bounced"] ?? 0,
+      totalReplies: evtMap["email_replied"] ?? 0,
+      totalDelivered: evtMap["email_delivered"] ?? 0,
     },
   };
 }

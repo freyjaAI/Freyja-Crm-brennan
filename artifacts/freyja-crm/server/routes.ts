@@ -267,6 +267,10 @@ export async function registerRoutes(
           created_by: "system",
           created_at: new Date().toISOString(),
         });
+        if (resolved.entityId) {
+          await outreachService.updateOutreachLogStatus(resolved.entityId, "opened", ["contacted"]);
+          console.log(`[Resend Webhook] Updated outreach_log to 'opened' for entity=${resolved.entityId}`);
+        }
       } else if (eventType === "email.clicked") {
         await db.insert(outreachEvents).values({
           entity_id: resolved.entityId,
@@ -277,6 +281,10 @@ export async function registerRoutes(
           created_by: "system",
           created_at: new Date().toISOString(),
         });
+        if (resolved.entityId) {
+          await outreachService.updateOutreachLogStatus(resolved.entityId, "opened", ["contacted"]);
+          console.log(`[Resend Webhook] Updated outreach_log to 'opened' (via click) for entity=${resolved.entityId}`);
+        }
       }
 
       res.json({ received: true });

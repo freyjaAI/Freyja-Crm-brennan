@@ -14,6 +14,7 @@ export type OutreachStatus = (typeof outreachStatusEnum)[number];
 
 export const outreachLogStatusEnum = [
   "contacted",
+  "opened",
   "responded",
   "meeting_set",
   "closed",

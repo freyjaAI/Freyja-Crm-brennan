@@ -12,6 +12,8 @@ import {
   CheckCircle,
   Mail,
   ArrowRight,
+  Eye,
+  MessageSquare,
 } from "lucide-react";
 import {
   BarChart,
@@ -40,6 +42,8 @@ interface OutreachStats {
   meetingsSet: number;
   conversions: number;
   overdueFollowUps: number;
+  opened: number;
+  responded: number;
 }
 
 interface RecentEmail {
@@ -139,6 +143,20 @@ export default function Dashboard() {
       icon: Phone,
       color: "text-chart-2",
       filterStatus: "contacted",
+    },
+    {
+      label: "Opened",
+      value: outreachStats?.opened ?? 0,
+      icon: Eye,
+      color: "text-amber-500",
+      filterStatus: undefined,
+    },
+    {
+      label: "Responded",
+      value: outreachStats?.responded ?? 0,
+      icon: MessageSquare,
+      color: "text-purple-500",
+      filterStatus: undefined,
     },
     {
       label: "Interested",

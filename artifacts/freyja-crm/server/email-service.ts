@@ -89,6 +89,10 @@ export class ResendEmailService implements IEmailService {
         html: finalBody,
         ...(replyTo ? { reply_to: [replyTo] } : {}),
         ...(req.headers ? { headers: req.headers } : {}),
+        tracking: {
+          opens: true,
+          clicks: true,
+        },
       });
 
       if (error) {
