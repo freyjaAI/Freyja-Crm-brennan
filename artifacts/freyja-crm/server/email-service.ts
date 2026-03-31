@@ -13,9 +13,8 @@ export function verifyUnsubToken(email: string, token: string): boolean {
 
 function buildUnsubUrl(recipientEmail: string): string {
   const token = generateUnsubToken(recipientEmail);
-  const domain = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0] || "localhost:8080";
-  const protocol = domain.includes("localhost") ? "http" : "https";
-  return `${protocol}://${domain}/api/outreach/unsubscribe?email=${encodeURIComponent(recipientEmail)}&token=${token}`;
+  const domain = process.env.UNSUB_DOMAIN || "freyja-crm.replit.app";
+  return `https://${domain}/api/outreach/unsubscribe?email=${encodeURIComponent(recipientEmail)}&token=${token}`;
 }
 
 function appendUnsubscribeFooter(bodyHtml: string, recipientEmail: string): string {
@@ -82,13 +81,20 @@ export class ResendEmailService implements IEmailService {
       const replyTo = req.replyTo || this.defaultReplyTo;
       const finalBody = req.skipUnsubFooter ? req.bodyHtml : appendUnsubscribeFooter(req.bodyHtml, req.to);
 
+      const unsubUrl = buildUnsubUrl(req.to);
+      const mergedHeaders: Record<string, string> = {
+        "List-Unsubscribe": `<${unsubUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        ...(req.headers || {}),
+      };
+
       const { data, error } = await this.client.emails.send({
         from,
         to: [req.to],
         subject: req.subject,
         html: finalBody,
         ...(replyTo ? { reply_to: [replyTo] } : {}),
-        ...(req.headers ? { headers: req.headers } : {}),
+        headers: mergedHeaders,
         tracking: {
           opens: true,
           clicks: true,
