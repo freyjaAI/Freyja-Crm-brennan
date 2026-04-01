@@ -143,12 +143,15 @@ export function validateResendEnv(): { valid: boolean; config?: ResendEnvConfig;
     return { valid: false, missing };
   }
 
+  const rawFrom = process.env.RESEND_FROM_EMAIL || "admin@mail.freyjaiq.com";
+  const fromEmail = rawFrom.replace(/^admin@freyjaiq\.com$/, "admin@mail.freyjaiq.com");
+
   return {
     valid: true,
     missing: [],
     config: {
       apiKey: process.env.RESEND_API_KEY!,
-      fromEmail: process.env.RESEND_FROM_EMAIL!,
+      fromEmail,
       fromName: process.env.RESEND_FROM_NAME,
       replyTo: process.env.RESEND_REPLY_TO,
     },
