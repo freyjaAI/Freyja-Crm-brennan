@@ -195,8 +195,7 @@ app.use((req, res, next) => {
         try {
           const existingInboxes = await db.select().from(senderInboxes).limit(1);
           if (existingInboxes.length === 0) {
-            const rawFrom = process.env.RESEND_FROM_EMAIL || "admin@mail.freyjaiq.com";
-            const fromEmail = rawFrom.replace(/^admin@freyjaiq\.com$/, "admin@mail.freyjaiq.com");
+            const fromEmail = process.env.RESEND_FROM_EMAIL || "admin@freyjaiq.com";
             const fromName = process.env.RESEND_FROM_NAME || "Freyja IQ";
             await db.insert(senderInboxes).values({
               label: `${fromName} Primary`,
