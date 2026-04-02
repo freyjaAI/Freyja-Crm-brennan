@@ -1438,16 +1438,14 @@ export async function registerRoutes(
 
   app.post("/api/outreach/test-send", requireAuth, async (req, res) => {
     try {
-      const { brokerId, subject, bodyHtml } = req.body;
+      const { brokerId, subject, bodyHtml, to: overrideTo } = req.body;
       if (!brokerId) return res.status(400).json({ error: "brokerId is required" });
 
       const brokerRows = await db.select().from(brokers).where(eq(brokers.id, Number(brokerId))).limit(1);
       if (brokerRows.length === 0) return res.status(404).json({ error: "Broker not found" });
       const broker = brokerRows[0];
-      if (!broker.email) return res.status(400).json({ error: "Broker has no email address" });
-
-      const suppressed = await outreachService.isEmailSuppressed(broker.email);
-      if (suppressed) return res.status(400).json({ error: "Email is suppressed" });
+      const recipientEmail = overrideTo || broker.email;
+      if (!recipientEmail) return res.status(400).json({ error: "No email address" });
 
       const resolvedSubject = outreachService.renderEmailTemplate(subject || "Test from Freyja IQ", broker);
       const resolvedBody = outreachService.renderEmailTemplate(
@@ -1463,7 +1461,7 @@ export async function registerRoutes(
 
       const result = await emailService.send({
         from: fromAddr,
-        to: broker.email,
+        to: recipientEmail,
         subject: resolvedSubject,
         bodyHtml: resolvedBody,
         replyTo: envCheck.config?.replyTo,
