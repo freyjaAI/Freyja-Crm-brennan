@@ -287,23 +287,28 @@ export async function registerRoutes(
           console.log(`[Resend Webhook] Updated outreach_log to 'opened' (via click) for entity=${resolved.entityId}`);
         }
       } else if (eventType === "email.received") {
-        const fromEmail = data.from || (Array.isArray(data.headers?.from) ? data.headers.from[0] : data.headers?.from);
-        const inReplyTo = data.headers?.in_reply_to || data.headers?.["in-reply-to"];
+        const senderRaw = data.from || data.sender || "";
+        const inReplyTo = data.in_reply_to || data.headers?.in_reply_to || data.headers?.["in-reply-to"] || data.headers?.message_id;
         const subject = data.subject || "";
-        console.log(`[Resend Webhook] Inbound email from=${fromEmail} subject=${subject} in_reply_to=${inReplyTo}`);
+        const headerKeys = data.headers ? Object.keys(data.headers) : [];
+        console.log(`[Resend Webhook] Inbound email from=${senderRaw} subject=${subject} in_reply_to=${inReplyTo} headerKeys=${headerKeys.join(",")}`);
+        console.log(`[Resend Webhook] Inbound payload keys: ${Object.keys(data).join(",")}`);
 
-        let matchedMsgId: string | undefined;
+        const senderEmail = senderRaw.replace(/.*<([^>]+)>.*/, "$1").toLowerCase().trim();
+        let processed = false;
+
         if (inReplyTo) {
-          const cleanId = inReplyTo.replace(/[<>]/g, "");
+          const cleanId = inReplyTo.replace(/[<>]/g, "").replace(/@.*$/, "");
           const msgRows = await db.select().from(emailMessages)
             .where(eq(emailMessages.provider_message_id, cleanId)).limit(1);
           if (msgRows.length > 0) {
-            matchedMsgId = cleanId;
+            const result = await outreachService.processReplyWebhook({ providerMessageId: cleanId });
+            console.log(`[Resend Webhook] Inbound reply matched via in_reply_to: msgId=${cleanId} processed=${result.processed}`);
+            processed = true;
           }
         }
 
-        if (!matchedMsgId && fromEmail) {
-          const senderEmail = fromEmail.replace(/.*<([^>]+)>.*/, "$1").toLowerCase().trim();
+        if (!processed && senderEmail) {
           const brokerRows = await db.select({ id: brokers.id }).from(brokers)
             .where(eq(brokers.email, senderEmail)).limit(1);
           if (brokerRows.length > 0) {
@@ -311,18 +316,31 @@ export async function registerRoutes(
               entityId: brokerRows[0].id,
               entityEmail: senderEmail,
             });
-            console.log(`[Resend Webhook] Inbound reply processed via sender match: entity=${brokerRows[0].id} processed=${result.processed}`);
-            return res.json({ received: true, processed: result.processed });
+            console.log(`[Resend Webhook] Inbound reply matched via broker email: entity=${brokerRows[0].id} processed=${result.processed}`);
+            processed = true;
           }
         }
 
-        if (matchedMsgId) {
-          const result = await outreachService.processReplyWebhook({
-            providerMessageId: matchedMsgId,
-          });
-          console.log(`[Resend Webhook] Inbound reply processed via message match: msgId=${matchedMsgId} processed=${result.processed}`);
-        } else {
-          console.log(`[Resend Webhook] Inbound email could not be matched to an outbound message. from=${fromEmail}`);
+        if (!processed && senderEmail) {
+          const recentMsg = await db.select().from(emailMessages)
+            .where(sql`${emailMessages.send_status} = 'sent' AND EXISTS (
+              SELECT 1 FROM brokers WHERE brokers.id = ${emailMessages.entity_id} AND brokers.email = ${senderEmail}
+            )`)
+            .orderBy(sql`${emailMessages.sent_at} DESC`)
+            .limit(1);
+          if (recentMsg.length > 0) {
+            const result = await outreachService.processReplyWebhook({
+              providerMessageId: recentMsg[0].provider_message_id || undefined,
+              entityId: recentMsg[0].entity_id,
+              entityEmail: senderEmail,
+            });
+            console.log(`[Resend Webhook] Inbound reply matched via recent message lookup: entity=${recentMsg[0].entity_id} processed=${result.processed}`);
+            processed = true;
+          }
+        }
+
+        if (!processed) {
+          console.log(`[Resend Webhook] Inbound email could not be matched. from=${senderEmail} subject=${subject}`);
         }
       }
 
