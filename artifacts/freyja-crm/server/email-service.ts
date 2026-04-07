@@ -152,7 +152,7 @@ export function validateResendEnv(): { valid: boolean; config?: ResendEnvConfig;
       apiKey: process.env.RESEND_API_KEY!,
       fromEmail,
       fromName: process.env.RESEND_FROM_NAME,
-      replyTo: process.env.RESEND_REPLY_TO || "factored@freyjafinancialgroup.net",
+      replyTo: process.env.RESEND_REPLY_TO || "administration@freyjaiq.com",
     },
   };
 }
