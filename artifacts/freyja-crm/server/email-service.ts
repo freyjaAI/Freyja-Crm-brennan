@@ -78,7 +78,7 @@ export class ResendEmailService implements IEmailService {
   async send(req: EmailSendRequest): Promise<EmailSendResult> {
     try {
       const from = req.from || this.defaultFrom;
-      const replyTo = req.replyTo || this.defaultReplyTo;
+      const replyTo = req.replyTo || this.defaultReplyTo || process.env.RESEND_REPLY_TO || "administration@freyjaiq.com";
       const finalBody = req.skipUnsubFooter ? req.bodyHtml : appendUnsubscribeFooter(req.bodyHtml, req.to);
 
       const unsubUrl = buildUnsubUrl(req.to);
@@ -88,12 +88,13 @@ export class ResendEmailService implements IEmailService {
         ...(req.headers || {}),
       };
 
+      console.log(`[EmailService:resend] SENDING TO=${req.to} replyTo=${replyTo}`);
       const { data, error } = await this.client.emails.send({
         from,
         to: [req.to],
         subject: req.subject,
         html: finalBody,
-        reply_to: [replyTo || process.env.RESEND_REPLY_TO || "administration@freyjaiq.com"],
+        reply_to: [replyTo],
         headers: mergedHeaders,
         tracking: {
           opens: true,
