@@ -144,7 +144,7 @@ export function validateResendEnv(): { valid: boolean; config?: ResendEnvConfig;
     return { valid: false, missing };
   }
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL || "admin@mail.freyjaiq.com";
+  const fromEmail = process.env.RESEND_FROM_EMAIL || "administration@freyjaiq.com";
 
   return {
     valid: true,
