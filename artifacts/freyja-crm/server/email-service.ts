@@ -93,7 +93,7 @@ export class ResendEmailService implements IEmailService {
         to: [req.to],
         subject: req.subject,
         html: finalBody,
-        ...(replyTo ? { reply_to: [replyTo] } : {}),
+        reply_to: [replyTo || process.env.RESEND_REPLY_TO || "administration@freyjaiq.com"],
         headers: mergedHeaders,
         tracking: {
           opens: true,
