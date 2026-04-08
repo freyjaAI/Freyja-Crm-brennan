@@ -383,6 +383,7 @@ export async function sendDueEmails(now?: string, maxSend?: number): Promise<{
         to: entity.email!,
         subject,
         bodyHtml,
+        replyTo: process.env.RESEND_REPLY_TO || "administration@freyjaiq.com",
       });
 
       if (result.success) {
